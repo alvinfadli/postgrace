@@ -30,6 +30,7 @@ struct ContentAreaView: View {
                 QueryEditorView()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Table Data View with Quick Filter Bar
@@ -73,6 +74,7 @@ struct ContentAreaView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let result = dataGridViewModel.result {
                 DataGridView(queryResult: result)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 8) {
                     ProgressView()
@@ -82,6 +84,7 @@ struct ContentAreaView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: "\(schema).\(table)") {
             await dataGridViewModel.loadTableData(schema: schema, table: table)
         }

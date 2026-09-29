@@ -6,11 +6,8 @@ struct RowData: Identifiable {
     let values: [CellValue]
 }
 
-/// Grid view for displaying query results.
-///
-/// SwiftUI's `Table` requires statically-defined columns at compile time,
-/// which doesn't work for dynamic SQL results with varying column counts.
-/// Instead, we use a scrollable grid with an `NSTableView`-style layout.
+/// Grid view for displaying table data and SQL query results.
+/// Fills the entire available section edge-to-edge without extra margins or padding.
 struct DataGridView: View {
     let queryResult: QueryResult
 
@@ -20,56 +17,104 @@ struct DataGridView: View {
         } else {
             VStack(spacing: 0) {
                 resultGrid
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 footer
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     // MARK: - Result Grid
 
     private var resultGrid: some View {
-        ScrollView([.horizontal, .vertical]) {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                Section {
-                    ForEach(Array(queryResult.rows.enumerated()), id: \.offset) { rowIndex, row in
-                        HStack(spacing: 0) {
-                            // Row number
-                            Text("\(rowIndex + 1)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
-                                .frame(width: 40, alignment: .trailing)
-                                .padding(.horizontal, 4)
+        GeometryReader { proxy in
+            ScrollView([.horizontal, .vertical]) {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    Section {
+                        ForEach(Array(queryResult.rows.enumerated()), id: \.offset) { rowIndex, row in
+                            HStack(spacing: 0) {
+                                // Row number gutter
+                                Text("\(rowIndex + 1)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 44, alignment: .trailing)
+                                    .padding(.trailing, 6)
+                                    .overlay(
+                                        Rectangle()
+                                            .frame(width: 0.5)
+                                            .foregroundColor(Color(NSColor.separatorColor)),
+                                        alignment: .trailing
+                                    )
 
-                            ForEach(Array(row.enumerated()), id: \.offset) { _, cellValue in
-                                cellView(for: cellValue)
-                                    .frame(minWidth: 120, maxWidth: 300, alignment: .leading)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 4)
+                                // Cell contents
+                                ForEach(Array(row.enumerated()), id: \.offset) { _, cellValue in
+                                    cellView(for: cellValue)
+                                        .frame(minWidth: 120, maxWidth: 300, alignment: .leading)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .overlay(
+                                            Rectangle()
+                                                .frame(width: 0.5)
+                                                .foregroundColor(Color(NSColor.separatorColor).opacity(0.4)),
+                                            alignment: .trailing
+                                        )
+                                }
+
+                                Spacer(minLength: 0)
                             }
+                            .frame(minWidth: proxy.size.width, alignment: .leading)
+                            .background(rowIndex % 2 == 0 ? Color(NSColor.textBackgroundColor) : Color(NSColor.controlBackgroundColor).opacity(0.4))
+                            .overlay(
+                                Rectangle()
+                                    .frame(height: 0.5)
+                                    .foregroundColor(Color(NSColor.separatorColor).opacity(0.3)),
+                                alignment: .bottom
+                            )
                         }
-                        .background(rowIndex % 2 == 0 ? Color.clear : Color(NSColor.controlBackgroundColor).opacity(0.5))
-                    }
-                } header: {
-                    // Column headers
-                    HStack(spacing: 0) {
-                        Text("#")
-                            .font(.caption.bold())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
-                            .padding(.horizontal, 4)
-
-                        ForEach(Array(queryResult.columns.enumerated()), id: \.offset) { _, column in
-                            Text(column.name)
+                    } header: {
+                        // Column headers
+                        HStack(spacing: 0) {
+                            Text("#")
                                 .font(.caption.bold())
-                                .frame(minWidth: 120, maxWidth: 300, alignment: .leading)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 6)
+                                .foregroundColor(.secondary)
+                                .frame(width: 44, alignment: .trailing)
+                                .padding(.trailing, 6)
+                                .overlay(
+                                    Rectangle()
+                                        .frame(width: 0.5)
+                                        .foregroundColor(Color(NSColor.separatorColor)),
+                                    alignment: .trailing
+                                )
+
+                            ForEach(Array(queryResult.columns.enumerated()), id: \.offset) { _, column in
+                                Text(column.name)
+                                    .font(.caption.bold())
+                                    .frame(minWidth: 120, maxWidth: 300, alignment: .leading)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .overlay(
+                                        Rectangle()
+                                            .frame(width: 0.5)
+                                            .foregroundColor(Color(NSColor.separatorColor).opacity(0.5)),
+                                        alignment: .trailing
+                                    )
+                            }
+
+                            Spacer(minLength: 0)
                         }
+                        .frame(minWidth: proxy.size.width, alignment: .leading)
+                        .background(Color(NSColor.windowBackgroundColor))
+                        .overlay(
+                            Rectangle()
+                                .frame(height: 0.5)
+                                .foregroundColor(Color(NSColor.separatorColor)),
+                            alignment: .bottom
+                        )
                     }
-                    .background(Color(NSColor.windowBackgroundColor))
-                    .border(Color(NSColor.separatorColor), width: 0.5)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.textBackgroundColor))
         }
     }
 

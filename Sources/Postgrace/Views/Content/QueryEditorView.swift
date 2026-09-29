@@ -187,6 +187,7 @@ struct QueryEditorView: View {
             // Result grid
             if let result = queryViewModel.result {
                 DataGridView(queryResult: result)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack {
                     Spacer()
@@ -197,8 +198,10 @@ struct QueryEditorView: View {
                         .foregroundColor(.secondary)
                     Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minHeight: 150)
+        .frame(minHeight: 150, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 }

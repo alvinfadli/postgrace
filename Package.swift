@@ -23,6 +23,11 @@ let package = Package(
                 .product(name: "KeychainAccess", package: "KeychainAccess")
             ],
             path: "Sources/Postgrace"
+        ),
+        .testTarget(
+            name: "PostgraceTests",
+            dependencies: ["Postgrace"],
+            path: "Tests/PostgraceTests"
         )
     ]
 )

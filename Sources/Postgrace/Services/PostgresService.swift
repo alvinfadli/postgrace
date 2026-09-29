@@ -153,15 +153,48 @@ public actor PostgresService {
                         } else {
                             cellRow.append(.null)
                         }
-                    case .int2, .int4, .int8, .oid:
-                        if let v = try? cell.decode(Int64.self) {
-                            cellRow.append(.int(v))
-                        } else if let v = try? cell.decode(String.self) {
-                            cellRow.append(.string(v))
+                    case .oid:
+                        var buffer = cell.bytes
+                        if let u32 = buffer?.readInteger(as: UInt32.self) {
+                            cellRow.append(.int(Int64(u32)))
                         } else {
                             cellRow.append(.null)
                         }
-                    case .float4, .float8, .numeric:
+                    case .int2:
+                        if let v = try? cell.decode(Int16.self) {
+                            cellRow.append(.int(Int64(v)))
+                        } else if let v = try? cell.decode(Int64.self) {
+                            cellRow.append(.int(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .int4:
+                        if let v = try? cell.decode(Int32.self) {
+                            cellRow.append(.int(Int64(v)))
+                        } else if let v = try? cell.decode(Int64.self) {
+                            cellRow.append(.int(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .int8:
+                        if let v = try? cell.decode(Int64.self) {
+                            cellRow.append(.int(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .float4:
+                        if let v = try? cell.decode(Float.self) {
+                            cellRow.append(.double(Double(v)))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .float8:
+                        if let v = try? cell.decode(Double.self) {
+                            cellRow.append(.double(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .numeric:
                         if let v = try? cell.decode(Double.self) {
                             cellRow.append(.double(v))
                         } else if let v = try? cell.decode(String.self) {
@@ -200,8 +233,11 @@ public actor PostgresService {
             }
         } catch let error as PostgresServiceError {
             throw error
+        } catch let psqlError as PSQLError {
+            let msg = psqlError.serverInfo?[.message] ?? "\(psqlError)"
+            throw PostgresServiceError.queryFailed(msg)
         } catch {
-            throw PostgresServiceError.queryFailed(error.localizedDescription)
+            throw PostgresServiceError.queryFailed(String(describing: error))
         }
 
         let elapsed = ContinuousClock.now - start

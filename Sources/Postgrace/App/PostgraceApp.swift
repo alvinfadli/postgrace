@@ -1,7 +1,27 @@
 import SwiftUI
+import AppKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        
+        DispatchQueue.main.async {
+            if let window = NSApplication.shared.windows.first {
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+    
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+}
 
 @main
 struct PostgraceApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     // Services
     private let postgresService: PostgresService
     private let keychainService: KeychainService
@@ -14,6 +34,9 @@ struct PostgraceApp: App {
     @State private var dataGridViewModel: DataGridViewModel
 
     init() {
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+
         let postgres = PostgresService()
         let keychain = KeychainService()
         let schema = SchemaService(postgresService: postgres)
@@ -41,6 +64,10 @@ struct PostgraceApp: App {
         }
         .defaultSize(width: 1200, height: 800)
         .commands {
+            SidebarCommands()
+            TextEditingCommands()
+            TextFormattingCommands()
+
             CommandGroup(replacing: .newItem) {
                 Button("New Connection") {
                     connectionViewModel.showingConnectionForm = true

@@ -5,11 +5,15 @@ struct QueryEditorView: View {
     @Environment(QueryViewModel.self) private var queryViewModel
     @State private var showHistory = false
 
+    @FocusState private var isEditorFocused: Bool
+
     var body: some View {
+        @Bindable var vm = queryViewModel
+
         HSplitView {
             // Main editor + results
             VSplitView {
-                editorPane
+                editorPane(queryText: $vm.queryText)
                 resultsPane
             }
 
@@ -35,9 +39,8 @@ struct QueryEditorView: View {
 
     // MARK: - Editor Pane
 
-    private var editorPane: some View {
-        @Bindable var queryVM = queryViewModel
-        return VStack(spacing: 0) {
+    private func editorPane(queryText: Binding<String>) -> some View {
+        VStack(spacing: 0) {
             // Toolbar
             HStack {
                 Button {
@@ -109,11 +112,30 @@ struct QueryEditorView: View {
 
             Divider()
 
-            // SQL text editor
-            TextEditor(text: $queryVM.queryText)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(4)
+            // SQL text editor with tap-to-focus and placeholder
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: queryText)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($isEditorFocused)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(4)
+
+                if queryViewModel.queryText.isEmpty {
+                    Text("Type a SQL query here (e.g. SELECT * FROM ...) or choose a Template above...")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(Color(NSColor.placeholderTextColor))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isEditorFocused = true
+            }
+            .onAppear {
+                isEditorFocused = true
+            }
         }
         .frame(minHeight: 150)
     }

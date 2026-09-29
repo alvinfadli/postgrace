@@ -17,6 +17,11 @@ struct ConnectionFormView: View {
     @State private var isTesting = false
     @State private var showPassword = false
 
+    enum FormField: Hashable {
+        case name, host, port, database, username, password
+    }
+    @FocusState private var focusedField: FormField?
+
     let existingConnection: SavedConnection?
 
     enum TestResult {
@@ -54,20 +59,27 @@ struct ConnectionFormView: View {
             Form {
                 Section("Connection") {
                     TextField("Display Name", text: $name)
+                        .focused($focusedField, equals: .name)
                     TextField("Host", text: $host)
+                        .focused($focusedField, equals: .host)
                     TextField("Port", text: $port)
+                        .focused($focusedField, equals: .port)
                     TextField("Database", text: $database)
+                        .focused($focusedField, equals: .database)
                 }
 
                 Section("Authentication") {
                     TextField("Username", text: $username)
+                        .focused($focusedField, equals: .username)
 
                     HStack {
                         Group {
                             if showPassword {
                                 TextField("Password", text: $password)
+                                    .focused($focusedField, equals: .password)
                             } else {
                                 SecureField("Password", text: $password)
+                                    .focused($focusedField, equals: .password)
                             }
                         }
                         Button {
@@ -166,6 +178,11 @@ struct ConnectionFormView: View {
             .padding()
         }
         .frame(width: 450, height: 520)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                focusedField = .name
+            }
+        }
     }
 
     private func buildConnection() -> SavedConnection {

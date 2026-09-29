@@ -11,6 +11,7 @@ struct PostgraceApp: App {
     @State private var connectionViewModel: ConnectionViewModel
     @State private var schemaViewModel: SchemaViewModel
     @State private var queryViewModel: QueryViewModel
+    @State private var dataGridViewModel: DataGridViewModel
 
     init() {
         let postgres = PostgresService()
@@ -27,6 +28,7 @@ struct PostgraceApp: App {
         ))
         _schemaViewModel = State(initialValue: SchemaViewModel(schemaService: schema))
         _queryViewModel = State(initialValue: QueryViewModel(postgresService: postgres))
+        _dataGridViewModel = State(initialValue: DataGridViewModel(postgresService: postgres))
     }
 
     var body: some Scene {
@@ -35,6 +37,7 @@ struct PostgraceApp: App {
                 .environment(connectionViewModel)
                 .environment(schemaViewModel)
                 .environment(queryViewModel)
+                .environment(dataGridViewModel)
         }
         .defaultSize(width: 1200, height: 800)
         .commands {

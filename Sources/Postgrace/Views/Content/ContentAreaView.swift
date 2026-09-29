@@ -9,6 +9,7 @@ enum ContentTab: Hashable {
 struct ContentAreaView: View {
     @Environment(ConnectionViewModel.self) private var connectionViewModel
     @Environment(SchemaViewModel.self) private var schemaViewModel
+    @Environment(DataGridViewModel.self) private var dataGridViewModel
     @State private var selectedTab: ContentTab = .query
 
     var body: some View {
@@ -63,28 +64,79 @@ struct ContentAreaView: View {
 
     private var dataTab: some View {
         Group {
-            if let table = schemaViewModel.selectedTable {
+            if let table = schemaViewModel.selectedTable,
+               let schema = schemaViewModel.selectedSchema {
                 VStack(spacing: 0) {
+                    // Table header with pagination
                     HStack {
                         Image(systemName: "tablecells")
                             .foregroundColor(.accentColor)
                         Text(table.name)
                             .font(.title3.bold())
-                        if let schema = schemaViewModel.selectedSchema {
-                            Text("(\(schema.name))")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
+                        Text("(\(schema.name))")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+
                         Spacer()
+
+                        // Pagination controls
+                        if dataGridViewModel.totalRows > 0 {
+                            Text("\(dataGridViewModel.totalRows) total rows")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            HStack(spacing: 4) {
+                                Button {
+                                    Task { await dataGridViewModel.previousPage() }
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                }
+                                .disabled(!dataGridViewModel.hasPreviousPage)
+
+                                Text("Page \(dataGridViewModel.currentPage + 1) / \(dataGridViewModel.totalPages)")
+                                    .font(.caption.monospacedDigit())
+                                    .frame(minWidth: 80)
+
+                                Button {
+                                    Task { await dataGridViewModel.nextPage() }
+                                } label: {
+                                    Image(systemName: "chevron.right")
+                                }
+                                .disabled(!dataGridViewModel.hasNextPage)
+                            }
+                            .controlSize(.small)
+                        }
+
+                        Button {
+                            Task { await dataGridViewModel.refresh() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .controlSize(.small)
                     }
                     .padding(8)
 
                     Divider()
 
-                    // TODO: Fetch and display table data
-                    Text("Table data view coming soon")
-                        .foregroundColor(.secondary)
+                    // Data grid
+                    if dataGridViewModel.isLoading {
+                        ProgressView("Loading data…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let error = dataGridViewModel.error {
+                        VStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.largeTitle)
+                                .foregroundColor(.red)
+                            Text(error)
+                                .foregroundColor(.red)
+                        }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let result = dataGridViewModel.result {
+                        DataGridView(queryResult: result)
+                    }
+                }
+                .task(id: table.oid) {
+                    await dataGridViewModel.loadTableData(schema: schema.name, table: table.name)
                 }
             } else {
                 VStack(spacing: 12) {
@@ -103,24 +155,9 @@ struct ContentAreaView: View {
 
     private var structureTab: some View {
         Group {
-            if let table = schemaViewModel.selectedTable {
-                VStack(spacing: 0) {
-                    HStack {
-                        Image(systemName: "list.bullet.rectangle")
-                            .foregroundColor(.accentColor)
-                        Text("Structure: \(table.name)")
-                            .font(.title3.bold())
-                        Spacer()
-                    }
-                    .padding(8)
-
-                    Divider()
-
-                    // TODO: Display column info, indexes, constraints
-                    Text("Structure view coming soon")
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+            if let table = schemaViewModel.selectedTable,
+               let schema = schemaViewModel.selectedSchema {
+                TableStructureView(schema: schema, table: table)
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "sidebar.left")

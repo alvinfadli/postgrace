@@ -126,32 +126,74 @@ public actor PostgresService {
             for try await row in rows {
                 let columns = row.makeRandomAccess()
 
-                // Build column metadata from the first row
+                // Build column metadata from the first row's cell descriptors
                 if resultColumns.isEmpty {
-                    for i in 0..<columns.count {
+                    for cell in columns {
                         resultColumns.append(ResultColumn(
-                            name: "col_\(i)",
-                            dataTypeOID: 0,
-                            dataTypeName: "text"
+                            name: cell.columnName,
+                            dataTypeOID: cell.dataType.rawValue,
+                            dataTypeName: "\(cell.dataType)"
                         ))
                     }
                 }
 
                 var cellRow: [CellValue] = []
-                for i in 0..<columns.count {
-                    let cell = columns[i]
-                    // Decode everything as String for maximum compatibility
-                    // PostgreSQL text format can represent all types
-                    if let value = try? cell.decode(String.self) {
-                        cellRow.append(.string(value))
-                    } else if let value = try? cell.decode(Int64.self) {
-                        cellRow.append(.int(value))
-                    } else if let value = try? cell.decode(Bool.self) {
-                        cellRow.append(.bool(value))
-                    } else if let value = try? cell.decode(Double.self) {
-                        cellRow.append(.double(value))
-                    } else {
+                for cell in columns {
+                    // Check for NULL first
+                    guard cell.bytes != nil else {
                         cellRow.append(.null)
+                        continue
+                    }
+
+                    // Decode based on PostgreSQL data type for better fidelity
+                    switch cell.dataType {
+                    case .bool:
+                        if let v = try? cell.decode(Bool.self) {
+                            cellRow.append(.bool(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .int2, .int4, .int8, .oid:
+                        if let v = try? cell.decode(Int64.self) {
+                            cellRow.append(.int(v))
+                        } else if let v = try? cell.decode(String.self) {
+                            cellRow.append(.string(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .float4, .float8, .numeric:
+                        if let v = try? cell.decode(Double.self) {
+                            cellRow.append(.double(v))
+                        } else if let v = try? cell.decode(String.self) {
+                            cellRow.append(.string(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .json, .jsonb:
+                        if let v = try? cell.decode(String.self) {
+                            cellRow.append(.json(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .timestamp, .timestamptz, .date, .time, .timetz:
+                        if let v = try? cell.decode(String.self) {
+                            cellRow.append(.date(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .bytea:
+                        if let v = try? cell.decode(Data.self) {
+                            cellRow.append(.data(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    default:
+                        // Fallback: try String (PostgreSQL text format handles most types)
+                        if let v = try? cell.decode(String.self) {
+                            cellRow.append(.string(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
                     }
                 }
                 cellRows.append(cellRow)
@@ -172,5 +214,22 @@ public actor PostgresService {
             rowsAffected: cellRows.count,
             statusMessage: "OK"
         )
+    }
+
+    /// Fetches paginated data from a table.
+    public func fetchTableData(schema: String, table: String, limit: Int = 200, offset: Int = 0) async throws -> QueryResult {
+        let sql = "SELECT * FROM \"\(schema)\".\"\(table)\" LIMIT \(limit) OFFSET \(offset)"
+        return try await executeQuery(sql)
+    }
+
+    /// Fetches the total row count for a table.
+    public func fetchTableRowCount(schema: String, table: String) async throws -> Int64 {
+        let sql = "SELECT COUNT(*) AS total FROM \"\(schema)\".\"\(table)\""
+        let result = try await executeQuery(sql)
+        if let firstRow = result.rows.first, let firstCell = firstRow.first {
+            if case .int(let count) = firstCell { return count }
+            if case .string(let str) = firstCell, let count = Int64(str) { return count }
+        }
+        return 0
     }
 }

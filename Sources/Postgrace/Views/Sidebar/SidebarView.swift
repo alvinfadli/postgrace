@@ -8,6 +8,7 @@ struct SidebarView: View {
     @Environment(QueryViewModel.self) private var queryViewModel
 
     @State private var searchText = ""
+    @State private var schemaForNewTable: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,6 +35,30 @@ struct SidebarView: View {
             .background(Color(NSColor.controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .padding(8)
+
+            // Quick Schemas Catalog Button
+            Button {
+                tabViewModel.openSchemasTab()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.3.layers.3d")
+                        .foregroundColor(.accentColor)
+                        .font(.caption)
+                    Text("Schemas Catalog")
+                        .font(.caption.bold())
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color(NSColor.controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 6)
 
             Divider()
 
@@ -81,6 +106,19 @@ struct SidebarView: View {
                                     .foregroundColor(.secondary)
                             }
                         }
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button("Browse Tables Catalog") {
+                                tabViewModel.openTablesTab(schema: schema.name)
+                            }
+                            Button("New Table in '\(schema.name)'…") {
+                                schemaForNewTable = schema.name
+                            }
+                            Divider()
+                            Button("Manage All Schemas") {
+                                tabViewModel.openSchemasTab()
+                            }
+                        }
                     }
                     .task(id: schema.name) {
                         if schemaViewModel.tables[schema.name] == nil {
@@ -90,6 +128,12 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            .sheet(item: Binding(
+                get: { schemaForNewTable.map { IdentifiableString(value: $0) } },
+                set: { schemaForNewTable = $0?.value }
+            )) { item in
+                CreateTableSheet(initialSchema: item.value)
+            }
 
             Divider()
 

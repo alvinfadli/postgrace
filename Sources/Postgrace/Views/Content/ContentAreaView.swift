@@ -21,6 +21,10 @@ struct ContentAreaView: View {
                     QueryEditorView()
                 case .structure(let schema, let table):
                     tableStructureView(schema: schema, table: table)
+                case .schemas:
+                    SchemaListView()
+                case .tables(let schema):
+                    TableListView(schema: schema)
                 }
             } else {
                 QueryEditorView()

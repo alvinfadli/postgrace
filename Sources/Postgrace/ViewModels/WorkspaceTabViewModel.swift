@@ -53,6 +53,36 @@ public class WorkspaceTabViewModel {
         activeTabId = tab.id
     }
 
+    /// Opens or switches to the Schemas catalog tab.
+    public func openSchemasTab() {
+        if let existing = tabs.first(where: {
+            if case .schemas = $0.type { return true }
+            return false
+        }) {
+            activeTabId = existing.id
+            return
+        }
+
+        let tab = WorkspaceTab(title: "Schemas", type: .schemas)
+        tabs.append(tab)
+        activeTabId = tab.id
+    }
+
+    /// Opens or switches to the Tables catalog tab for a given schema.
+    public func openTablesTab(schema: String) {
+        if let existing = tabs.first(where: {
+            if case .tables(let s) = $0.type, s == schema { return true }
+            return false
+        }) {
+            activeTabId = existing.id
+            return
+        }
+
+        let tab = WorkspaceTab(title: "Tables: \(schema)", type: .tables(schema: schema))
+        tabs.append(tab)
+        activeTabId = tab.id
+    }
+
     /// Opens a new SQL Query tab.
     public func openQueryTab() {
         let title = "Query #\(queryCounter)"

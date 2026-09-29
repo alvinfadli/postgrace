@@ -82,6 +82,7 @@ struct WorkspaceToolbarView: View {
                 .help("Switch Database (⌘⇧D)")
 
                 // Active Schema / Table context
+                // Active Schema / Table context
                 if let activeTab = tabViewModel.activeTab {
                     Text("/")
                         .foregroundColor(.secondary)
@@ -104,11 +105,26 @@ struct WorkspaceToolbarView: View {
                     case .structure(let schema, let table):
                         Label("\(schema).\(table) Structure", systemImage: "list.bullet.rectangle")
                             .font(.caption.bold())
+                    case .schemas:
+                        Label("Schemas", systemImage: "square.3.layers.3d")
+                            .font(.caption.bold())
+                    case .tables(let schema):
+                        Text(schema)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("/")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Label("Tables", systemImage: "tablecells")
+                            .font(.caption.bold())
                     }
                 }
             }
 
             Spacer()
+
+            // User Privilege & Role Indicator
+            UserPrivilegeBadgeView()
 
             // Disconnect Button
             Button {

@@ -228,10 +228,9 @@ struct ConnectionHubView: View {
         Task {
             await connectionViewModel.connect(to: connection)
             if connectionViewModel.isConnected {
-                await schemaViewModel.loadSchemas()
-                // Also introspect all available databases for the in-connection switcher
-                let schemaService = SchemaService(postgresService: PostgresService())
-                await connectionViewModel.loadAvailableDatabases(schemaService: schemaService)
+                await schemaViewModel.refresh()
+                let databases = await schemaViewModel.loadAvailableDatabases()
+                connectionViewModel.availableDatabases = databases
             }
         }
     }

@@ -243,5 +243,106 @@ final class PostgresIntegrationTests: XCTestCase {
         let filteredData = try await postgresService.fetchTableData(schema: "public", table: tempTableName, filterClause: "status = 'active'", limit: 10, offset: 0)
         XCTAssertEqual(filteredData.rows.count, 2)
     }
+
+    func testUserPrivilegeIntrospection() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("PostgreSQL not reachable.")
+        }
+        try await postgresService.connect(config: config, password: "")
+
+        let privs = try await schemaService.fetchUserPrivileges()
+        XCTAssertEqual(privs.username, "ddt")
+        XCTAssertFalse(privs.privilegeLevelDescription.isEmpty)
+
+        // Schema privileges check
+        XCTAssertFalse(privs.schemaPrivileges.isEmpty)
+        if let publicPriv = privs.schemaPrivileges["public"] {
+            XCTAssertTrue(publicPriv.canUsage)
+        } else {
+            XCTFail("Expected public schema privileges")
+        }
+
+        // Schema details check
+        let schemaDetails = try await schemaService.fetchSchemaDetails()
+        XCTAssertFalse(schemaDetails.isEmpty)
+        XCTAssertTrue(schemaDetails.contains { $0.name == "public" })
+    }
+
+    func testSchemaCrudLifecycle() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("PostgreSQL not reachable.")
+        }
+        try await postgresService.connect(config: config, password: "")
+
+        let rand = Int.random(in: 1000...9999)
+        let schema1 = "postgrace_sch_\(rand)"
+        let schema2 = "postgrace_renamed_\(rand)"
+
+        // 1. Create Schema
+        try await schemaService.createSchema(name: schema1)
+        var details = try await schemaService.fetchSchemaDetails()
+        XCTAssertTrue(details.contains { $0.name == schema1 }, "Created schema should exist")
+
+        // 2. Rename Schema
+        try await schemaService.renameSchema(from: schema1, to: schema2)
+        details = try await schemaService.fetchSchemaDetails()
+        XCTAssertFalse(details.contains { $0.name == schema1 }, "Old schema name should no longer exist")
+        XCTAssertTrue(details.contains { $0.name == schema2 }, "Renamed schema should exist")
+
+        // 3. Drop Schema
+        try await schemaService.dropSchema(name: schema2, cascade: true)
+        details = try await schemaService.fetchSchemaDetails()
+        XCTAssertFalse(details.contains { $0.name == schema2 }, "Dropped schema should be removed")
+    }
+
+    func testTableCrudLifecycle() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("PostgreSQL not reachable.")
+        }
+        try await postgresService.connect(config: config, password: "")
+
+        let rand = Int.random(in: 1000...9999)
+        let table1 = "postgrace_tbl_\(rand)"
+        let table2 = "postgrace_tbl_renamed_\(rand)"
+
+        let columns = [
+            NewColumnDefinition(name: "id", dataType: "bigserial", isPrimaryKey: true, isNullable: false, defaultValue: ""),
+            NewColumnDefinition(name: "title", dataType: "text", isPrimaryKey: false, isNullable: false, defaultValue: ""),
+            NewColumnDefinition(name: "views", dataType: "integer", isPrimaryKey: false, isNullable: true, defaultValue: "0")
+        ]
+
+        // 1. Create Table
+        try await schemaService.createTable(schema: "public", name: table1, columns: columns)
+        var tableDetails = try await schemaService.fetchTableDetails(schema: "public")
+        XCTAssertTrue(tableDetails.contains { $0.name == table1 }, "Created table should exist in table details")
+
+        let createdTable = tableDetails.first { $0.name == table1 }
+        XCTAssertNotNil(createdTable)
+        XCTAssertEqual(createdTable?.columnCount, 3)
+        XCTAssertTrue(createdTable?.canInsert == true)
+
+        // 2. Rename Table
+        try await schemaService.renameTable(schema: "public", from: table1, to: table2)
+        tableDetails = try await schemaService.fetchTableDetails(schema: "public")
+        XCTAssertFalse(tableDetails.contains { $0.name == table1 })
+        XCTAssertTrue(tableDetails.contains { $0.name == table2 })
+
+        // 3. Insert and Truncate Table
+        _ = try await postgresService.executeQuery("INSERT INTO public.\(table2) (title, views) VALUES ('Test post', 42);")
+        let countBefore = try await postgresService.fetchTableRowCount(schema: "public", table: table2, filterClause: "")
+        XCTAssertEqual(countBefore, 1)
+
+        try await schemaService.truncateTable(schema: "public", name: table2)
+        let countAfter = try await postgresService.fetchTableRowCount(schema: "public", table: table2, filterClause: "")
+        XCTAssertEqual(countAfter, 0)
+
+        // 4. Drop Table
+        try await schemaService.dropTable(schema: "public", name: table2, cascade: true)
+        tableDetails = try await schemaService.fetchTableDetails(schema: "public")
+        XCTAssertFalse(tableDetails.contains { $0.name == table2 })
+    }
 }
 

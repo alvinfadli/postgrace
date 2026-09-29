@@ -84,6 +84,8 @@ struct WorkspaceTabBarView: View {
         case .table: return "tablecells"
         case .query: return "bolt.fill"
         case .structure: return "list.bullet.rectangle"
+        case .schemas: return "square.3.layers.3d"
+        case .tables: return "tablecells"
         }
     }
 }

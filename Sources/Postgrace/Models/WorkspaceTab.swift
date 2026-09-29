@@ -5,6 +5,8 @@ public enum TabType: Hashable {
     case table(schema: String, table: String)
     case query(id: UUID, title: String)
     case structure(schema: String, table: String)
+    case schemas
+    case tables(schema: String)
 }
 
 /// Represents an open tab in the Postgrace document workspace.

@@ -9,27 +9,12 @@ struct ContentView: View {
 
         ZStack(alignment: .top) {
             if connectionViewModel.isConnected {
-                // Workspace View (Connected)
+                // Workspace View (Connected) - Clean 2-pane layout without Inspector
                 NavigationSplitView {
                     SidebarView()
                         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-                } content: {
-                    ContentAreaView()
-                        .navigationSplitViewColumnWidth(min: 500, ideal: 750)
                 } detail: {
-                    VStack {
-                        Image(systemName: "info.circle")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        Text("Inspector")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
-                        Text("Active session details")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+                    ContentAreaView()
                 }
                 .toolbar {
                     ToolbarItem(placement: .principal) {

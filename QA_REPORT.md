@@ -51,6 +51,22 @@ During this QA process, **2 critical architectural defects** were discovered and
 
 ---
 
+### 🐛 Defect 3: macOS Window Activation & Keyboard Focus Failure (Blocker)
+* **Root Cause:** When running a Swift Package executable on macOS, the system defaults to an `.accessory` or background activation policy unless explicitly configured. Consequently, the window never became the **Key Window** (`isKeyWindow == false`). In this state, AppKit drops keyboard input events and text fields (`TextField`, `SecureField`, and `TextEditor`) refuse first responder status, causing all typing to be completely ignored. Additionally, standard `TextEditingCommands()` were missing from the application scene.
+* **Fix Implemented:** 
+  1. Configured an `NSApplicationDelegate` with:
+     ```swift
+     NSApplication.shared.setActivationPolicy(.regular)
+     NSApplication.shared.activate(ignoringOtherApps: true)
+     window.makeKeyAndOrderFront(nil)
+     ```
+  2. Registered standard `TextEditingCommands()` and `TextFormattingCommands()` in `PostgraceApp.commands`.
+  3. Added `@FocusState` in `ConnectionFormView` with automatic initial focus on the `name` field upon appearance.
+  4. Added `@FocusState`, full-pane tap-to-focus gesture, and placeholder guides in `QueryEditorView`.
+* **Verification:** Verified compilation, app startup focus delegation, and keyboard input responsiveness.
+
+---
+
 ## 3. Test Suite Breakdown
 
 ### Suite 1: `ModelTests` (3 Tests)

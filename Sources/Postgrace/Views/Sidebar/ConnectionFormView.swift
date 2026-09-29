@@ -1,9 +1,10 @@
 import SwiftUI
 
-public struct ConnectionFormView: View {
+/// Connection form presented as a sheet for creating or editing connections.
+struct ConnectionFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ConnectionViewModel.self) private var connectionViewModel
-    
+
     @State private var name: String
     @State private var host: String
     @State private var port: String
@@ -12,11 +13,18 @@ public struct ConnectionFormView: View {
     @State private var database: String
     @State private var sslMode: SSLMode
     @State private var colorTag: ConnectionColor
-    @State private var testResult: Bool?
-    
+    @State private var testResult: TestResult?
+    @State private var isTesting = false
+    @State private var showPassword = false
+
     let existingConnection: SavedConnection?
-    
-    public init(connection: SavedConnection?) {
+
+    enum TestResult {
+        case success
+        case failure(String)
+    }
+
+    init(connection: SavedConnection?) {
         self.existingConnection = connection
         _name = State(initialValue: connection?.name ?? "")
         _host = State(initialValue: connection?.host ?? "localhost")
@@ -26,54 +34,127 @@ public struct ConnectionFormView: View {
         _sslMode = State(initialValue: connection?.sslMode ?? .disable)
         _colorTag = State(initialValue: connection?.colorTag ?? .none)
     }
-    
-    public var body: some View {
-        VStack(spacing: 20) {
-            Text(existingConnection == nil ? "New Connection" : "Edit Connection")
-                .font(.title2)
-                .bold()
-            
-            Form {
-                TextField("Name", text: $name)
-                TextField("Host", text: $host)
-                TextField("Port", text: $port)
-                TextField("Username", text: $username)
-                SecureField("Password", text: $password)
-                TextField("Database", text: $database)
-                
-                Picker("SSL Mode", selection: $sslMode) {
-                    Text("Disable").tag(SSLMode.disable)
-                    Text("Require").tag(SSLMode.require)
-                }
-                
-                Picker("Color Tag", selection: $colorTag) {
-                    Text("None").tag(ConnectionColor.none)
-                    Text("Red").tag(ConnectionColor.red)
-                    Text("Blue").tag(ConnectionColor.blue)
-                    Text("Green").tag(ConnectionColor.green)
-                    Text("Orange").tag(ConnectionColor.orange)
-                    Text("Purple").tag(ConnectionColor.purple)
-                }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: existingConnection == nil ? "plus.circle.fill" : "pencil.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+                Text(existingConnection == nil ? "New Connection" : "Edit Connection")
+                    .font(.title2.bold())
+                Spacer()
             }
             .padding()
-            
-            if let result = testResult {
-                Text(result ? "Connection successful!" : (connectionViewModel.connectionError ?? "Connection failed"))
-                    .foregroundColor(result ? .green : .red)
-                    .animation(.easeInOut, value: testResult)
-            }
-            
-            HStack {
-                Button("Test Connection") {
-                    Task {
-                        let conn = buildConnection()
-                        testResult = await connectionViewModel.testConnection(conn, password: password)
+
+            Divider()
+
+            // Form
+            Form {
+                Section("Connection") {
+                    TextField("Display Name", text: $name)
+                    TextField("Host", text: $host)
+                    TextField("Port", text: $port)
+                    TextField("Database", text: $database)
+                }
+
+                Section("Authentication") {
+                    TextField("Username", text: $username)
+
+                    HStack {
+                        Group {
+                            if showPassword {
+                                TextField("Password", text: $password)
+                            } else {
+                                SecureField("Password", text: $password)
+                            }
+                        }
+                        Button {
+                            showPassword.toggle()
+                        } label: {
+                            Image(systemName: showPassword ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.secondary)
                     }
                 }
+
+                Section("Options") {
+                    Picker("SSL Mode", selection: $sslMode) {
+                        Text("Disable").tag(SSLMode.disable)
+                        Text("Require").tag(SSLMode.require)
+                    }
+
+                    Picker("Color Tag", selection: $colorTag) {
+                        Label("None", systemImage: "circle").tag(ConnectionColor.none)
+                        Label("Red", systemImage: "circle.fill").foregroundColor(.red).tag(ConnectionColor.red)
+                        Label("Blue", systemImage: "circle.fill").foregroundColor(.blue).tag(ConnectionColor.blue)
+                        Label("Green", systemImage: "circle.fill").foregroundColor(.green).tag(ConnectionColor.green)
+                        Label("Orange", systemImage: "circle.fill").foregroundColor(.orange).tag(ConnectionColor.orange)
+                        Label("Purple", systemImage: "circle.fill").foregroundColor(.purple).tag(ConnectionColor.purple)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+
+            // Test result
+            if let result = testResult {
+                HStack {
+                    switch result {
+                    case .success:
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Connection successful!")
+                            .foregroundColor(.green)
+                    case .failure(let msg):
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                        Text(msg)
+                            .foregroundColor(.red)
+                            .lineLimit(2)
+                    }
+                    Spacer()
+                }
+                .font(.subheadline)
+                .padding(.horizontal)
+                .padding(.vertical, 4)
+                .transition(.opacity)
+            }
+
+            Divider()
+
+            // Actions
+            HStack {
+                Button("Test Connection") {
+                    testResult = nil
+                    isTesting = true
+                    Task {
+                        let conn = buildConnection()
+                        let success = await connectionViewModel.testConnection(conn, password: password)
+                        withAnimation {
+                            testResult = success
+                                ? .success
+                                : .failure(connectionViewModel.connectionError ?? "Connection failed")
+                        }
+                        isTesting = false
+                    }
+                }
+                .disabled(isTesting || host.isEmpty || username.isEmpty)
+
+                if isTesting {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
                 Spacer()
+
                 Button("Cancel", role: .cancel) {
                     dismiss()
                 }
+                .keyboardShortcut(.escape)
+
                 Button("Save") {
                     let conn = buildConnection()
                     connectionViewModel.saveConnection(conn, password: password)
@@ -82,13 +163,13 @@ public struct ConnectionFormView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.isEmpty || host.isEmpty || username.isEmpty)
             }
+            .padding()
         }
-        .padding()
-        .frame(width: 400)
+        .frame(width: 450, height: 520)
     }
-    
+
     private func buildConnection() -> SavedConnection {
-        return SavedConnection(
+        SavedConnection(
             id: existingConnection?.id ?? UUID(),
             name: name,
             host: host,

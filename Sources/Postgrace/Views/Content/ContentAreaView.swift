@@ -74,7 +74,7 @@ struct ContentAreaView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let result = dataGridViewModel.result {
                 DataGridView(queryResult: result)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 VStack(spacing: 8) {
                     ProgressView()

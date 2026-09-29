@@ -76,32 +76,35 @@ During this QA process, **2 critical architectural defects** were discovered and
 | `testQueryResultProperties` | Result set initialization, column/row count, execution time | 0.000s | **PASSED** |
 | `testSavedConnectionCodable` | JSON serialization / deserialization fidelity for saved connections | 0.002s | **PASSED** |
 
-### Suite 2: `ViewModelTests` (5 Tests)
+### Suite 2: `ViewModelTests` (6 Tests)
 | Test Case | Scope | Duration | Status |
 |:---|:---|:---:|:---:|
-| `testColumnInfoIdentifier` | Unique composite column IDs (`name_position`) | 0.000s | **PASSED** |
-| `testConnectionViewModelManagement` | Connection adding, updating, deduplication, and deletion | 0.052s | **PASSED** |
+| `testColumnInfoIdentifier` | Unique composite column IDs (`name_position`) | 0.001s | **PASSED** |
+| `testConnectionViewModelManagement` | Connection adding, updating, deduplication, and deletion | 0.065s | **PASSED** |
 | `testPaginationCalculations` | Page boundary math (0 rows, exact page, remainder, previous/next states) | 0.000s | **PASSED** |
 | `testQueryViewModelState` | Query buffer state, history tracking, result clearing | 0.001s | **PASSED** |
 | `testTableTypeRawValues` | PostgreSQL catalog relation kind mapping (`BASE TABLE`, `VIEW`, etc.) | 0.000s | **PASSED** |
+| `testWorkspaceTabManagement` | Multi-tab opening, deduplication, active tab management, tab closing | 0.000s | **PASSED** |
 
-### Suite 3: `PostgresIntegrationTests` (4 Tests against live PG 18.6)
+### Suite 3: `PostgresIntegrationTests` (6 Tests against live PG 18.6)
 | Test Case | Scope | Duration | Status |
 |:---|:---|:---:|:---:|
-| `testLiveConnectionAndQueryExecution` | Socket TCP handshake, SCRAM-SHA-256 auth, multi-type query execution | 0.023s | **PASSED** |
-| `testSchemaIntrospectionAndTableLifecycle` | Catalog introspection (`pg_database`, `pg_namespace`), dynamic table creation, primary key verification, row count, limit/offset pagination | 0.069s | **PASSED** |
-| `testInvalidQueryThrowsExpectedError` | PostgreSQL server error message extraction | 0.064s | **PASSED** |
-| `testQueryExecutionWhenNotConnected` | Guard against disconnected query execution (`notConnected` state) | 0.101s | **PASSED** |
+| `testLiveConnectionAndQueryExecution` | Socket TCP handshake, SCRAM-SHA-256 auth, multi-type query execution | 0.018s | **PASSED** |
+| `testLiveInConnectionDatabaseSwitching` | Seamless in-connection DB switching (`postgres` ↔ other databases), verifying `current_database()` dynamically | 0.137s | **PASSED** |
+| `testTableDataFilteringWithWhereClause` | WHERE filter clause execution, filtered row counting, and limit/offset validation | 0.021s | **PASSED** |
+| `testSchemaIntrospectionAndTableLifecycle` | Catalog introspection (`pg_database`, `pg_namespace`), dynamic table creation, primary key verification, row count, limit/offset pagination | 0.188s | **PASSED** |
+| `testInvalidQueryThrowsExpectedError` | PostgreSQL server error message extraction | 0.041s | **PASSED** |
+| `testQueryExecutionWhenNotConnected` | Guard against disconnected query execution (`notConnected` state) | 0.000s | **PASSED** |
 
 ---
 
 ## 4. Test Execution Summary
 
 ```
-Test Suite 'All tests' started at 2026-09-29 20:02:50.389
-Executed 12 tests, with 0 failures (0 unexpected) in 0.315 seconds
+Test Suite 'All tests' started at 2026-09-29 20:25:18.610
+Executed 15 tests, with 0 failures (0 unexpected) in 0.480 seconds
 Target: arm64e-apple-macos14.0
-Result: 100% PASSED
+Result: 100% PASSED (15/15)
 ```
 
 ---

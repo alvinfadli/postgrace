@@ -8,40 +8,55 @@ public struct StatusBarView: View {
     public init() {}
     
     public var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             Circle()
-                .fill(connectionViewModel.isConnected ? Color.green : Color.red)
-                .frame(width: 8, height: 8)
+                .fill(connectionViewModel.isConnected ? PostgraceTheme.emeraldRw : PostgraceTheme.destructiveRed)
+                .frame(width: 7, height: 7)
             
             Text(connectionViewModel.isConnected ? "Connected" : "Disconnected")
                 .font(.caption)
             
             if connectionViewModel.isConnected, let conn = connectionViewModel.selectedConnection {
-                Text("-")
+                Text("/")
+                    .font(.caption.bold())
+                    .foregroundColor(PostgraceTheme.border)
                 Text(conn.database)
-                    .font(.caption)
-                    .bold()
+                    .font(.caption.bold())
+                    .foregroundColor(PostgraceTheme.accentSky)
             }
             
             Spacer()
             
             if let table = schemaViewModel.selectedTable {
-                Text("Table: \(table.name)")
-                    .font(.caption)
+                HStack(spacing: 4) {
+                    Image(systemName: "tablecells")
+                        .font(.caption2)
+                    Text("\(table.schema).\(table.name)")
+                        .font(.caption.monospaced())
+                }
+                .foregroundColor(.secondary)
             }
             
             if let result = queryViewModel.result {
                 Text("•")
+                    .foregroundColor(PostgraceTheme.border)
                 Text("\(result.rowsAffected) rows")
-                    .font(.caption)
+                    .font(.caption.monospacedDigit())
                 Text("•")
-                Text(String(format: "%.2f s", result.executionTime))
-                    .font(.caption)
+                    .foregroundColor(PostgraceTheme.border)
+                Text(String(format: "%.3f s", result.executionTime))
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.secondary)
             }
         }
         .padding(.horizontal, 10)
         .frame(height: 22)
-        .background(Color(NSColor.windowBackgroundColor))
-        .border(Color(NSColor.separatorColor), width: 1)
+        .background(PostgraceTheme.surface)
+        .overlay(
+            Rectangle()
+                .fill(PostgraceTheme.border)
+                .frame(height: PostgraceTheme.hairlineBorder),
+            alignment: .top
+        )
     }
 }

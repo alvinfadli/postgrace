@@ -26,6 +26,7 @@ public class QueryViewModel {
     public var queryHistory: [QueryHistoryItem] = []
     
     private let postgresService: PostgresService
+    private var currentTask: Task<QueryResult, Error>?
     
     public init(postgresService: PostgresService) {
         self.postgresService = postgresService
@@ -37,8 +38,13 @@ public class QueryViewModel {
         isExecuting = true
         executionError = nil
         
+        let task = Task {
+            try await postgresService.executeQuery(queryText)
+        }
+        self.currentTask = task
+        
         do {
-            let queryResult = try await postgresService.executeQuery(queryText)
+            let queryResult = try await task.value
             self.result = queryResult
             
             let historyItem = QueryHistoryItem(
@@ -47,12 +53,32 @@ public class QueryViewModel {
                 rowCount: queryResult.rowsAffected
             )
             queryHistory.append(historyItem)
+        } catch is CancellationError {
+            executionError = "Query cancelled by user."
+            self.result = nil
         } catch {
-            executionError = error.localizedDescription
+            if error.localizedDescription.lowercased().contains("cancel") {
+                executionError = "Query cancelled by user."
+            } else {
+                executionError = error.localizedDescription
+            }
             self.result = nil
         }
         
+        self.currentTask = nil
+        self.isExecuting = false
+    }
+
+    /// Cancels or aborts the currently running query.
+    public func cancelQuery() {
+        guard isExecuting else { return }
+        currentTask?.cancel()
+        currentTask = nil
+        Task {
+            await postgresService.cancelRunningQuery()
+        }
         isExecuting = false
+        executionError = "Query cancelled by user."
     }
     
     public func clearResult() {

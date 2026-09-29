@@ -1,27 +1,36 @@
 import SwiftUI
 
-/// Excel/Sequel Ace-style quick filter bar positioned directly atop the DataGridView.
+/// Quick filter bar positioned directly atop the DataGridView matching the artifact.
+/// Features a dark monospace input, cyan "WHERE" badge, and pagination controls.
 struct QuickFilterBarView: View {
     @Environment(DataGridViewModel.self) private var dataGridViewModel
     @Binding var filterClause: String
     let onApply: () -> Void
 
+    private var paginationText: String {
+        let startRow: Int64 = Int64(dataGridViewModel.currentPage * dataGridViewModel.pageSize + 1)
+        let endRow: Int64 = min(startRow + Int64(dataGridViewModel.pageSize) - 1, dataGridViewModel.totalRows)
+        return "\(startRow) – \(endRow) of \(dataGridViewModel.totalRows) rows"
+    }
+
     var body: some View {
         HStack(spacing: 8) {
+            // "FILTER:" Label
             Text("FILTER:")
-                .font(.caption.bold())
-                .foregroundColor(.secondary)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary.opacity(0.8))
 
-            // Filter expression input
-            HStack {
+            // Filter Expression Input Box (WHERE badge + text input)
+            HStack(spacing: 6) {
                 Text("WHERE")
-                    .font(.caption.monospaced())
-                    .foregroundColor(.accentColor)
-                    .padding(.leading, 6)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(PostgraceTheme.accentSky)
+                    .padding(.leading, 4)
 
                 TextField("e.g. status = 'active' AND id > 100", text: $filterClause)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .textFieldStyle(.plain)
+                    .foregroundColor(.primary)
                     .onSubmit {
                         onApply()
                     }
@@ -33,58 +42,77 @@ struct QuickFilterBarView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
+                            .font(.caption2)
                     }
                     .buttonStyle(.plain)
-                    .padding(.trailing, 6)
+                    .padding(.trailing, 4)
                 }
             }
+            .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(Color(NSColor.textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .frame(maxWidth: 420)
+            .background(PostgraceTheme.surfaceElevated)
+            .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                    .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
             )
 
-            Button("Apply") {
+            // Apply Button
+            Button {
                 onApply()
+            } label: {
+                Text("Apply")
+                    .font(.caption.bold())
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(PostgraceTheme.accentSky)
+                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
             }
-            .controlSize(.small)
-            .keyboardShortcut(.return, modifiers: [])
+            .buttonStyle(.plain)
 
             Spacer()
 
             // Pagination Controls
             if dataGridViewModel.totalRows > 0 {
-                Text("\(dataGridViewModel.totalRows) rows")
-                    .font(.caption)
+                Text(paginationText)
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.secondary)
 
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     Button {
                         Task { await dataGridViewModel.previousPage() }
                     } label: {
                         Image(systemName: "chevron.left")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(dataGridViewModel.hasPreviousPage ? .primary : .secondary.opacity(0.4))
+                            .padding(4)
                     }
+                    .buttonStyle(.plain)
                     .disabled(!dataGridViewModel.hasPreviousPage)
-
-                    Text("\(dataGridViewModel.currentPage + 1) / \(dataGridViewModel.totalPages)")
-                        .font(.caption.monospacedDigit())
-                        .frame(minWidth: 44)
 
                     Button {
                         Task { await dataGridViewModel.nextPage() }
                     } label: {
                         Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(dataGridViewModel.hasNextPage ? .primary : .secondary.opacity(0.4))
+                            .padding(4)
                     }
+                    .buttonStyle(.plain)
                     .disabled(!dataGridViewModel.hasNextPage)
                 }
-                .controlSize(.small)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color(NSColor.windowBackgroundColor))
-        .border(Color(NSColor.separatorColor), width: 0.5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(PostgraceTheme.surface)
+        .overlay(
+            Rectangle()
+                .fill(PostgraceTheme.border)
+                .frame(height: PostgraceTheme.hairlineBorder),
+            alignment: .bottom
+        )
     }
 }

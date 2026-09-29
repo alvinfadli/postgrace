@@ -22,7 +22,10 @@ let package = Package(
                 .product(name: "NIOSSH", package: "swift-nio-ssh"),
                 .product(name: "KeychainAccess", package: "KeychainAccess")
             ],
-            path: "Sources/Postgrace"
+            path: "Sources/Postgrace",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "PostgraceTests",

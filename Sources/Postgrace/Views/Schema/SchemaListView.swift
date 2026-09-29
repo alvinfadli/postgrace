@@ -27,7 +27,7 @@ struct SchemaListView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Image(systemName: "square.3.layers.3d")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(PostgraceTheme.accentSky)
                             .font(.title3)
                         Text("Schemas")
                             .font(.title3.bold())
@@ -57,24 +57,29 @@ struct SchemaListView: View {
                         .fontWeight(.medium)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(PostgraceTheme.accentSky)
                 .controlSize(.regular)
                 .disabled(!canCreateSchema)
                 .help(canCreateSchema ? "Create a new schema" : "User '\(currentUser)' lacks CREATE privilege on this database")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color(NSColor.windowBackgroundColor))
-
-            Divider()
+            .background(PostgraceTheme.surface)
+            .overlay(
+                Rectangle()
+                    .fill(PostgraceTheme.border)
+                    .frame(height: PostgraceTheme.hairlineBorder),
+                alignment: .bottom
+            )
 
             // Error Message Banner if any
             if let error = errorMessage ?? schemaViewModel.crudError {
                 HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                     Spacer()
                     Button {
                         errorMessage = nil
@@ -86,8 +91,13 @@ struct SchemaListView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(8)
-                .background(Color.red.opacity(0.1))
-                Divider()
+                .background(PostgraceTheme.destructiveRedMuted)
+                .overlay(
+                    Rectangle()
+                        .fill(PostgraceTheme.border)
+                        .frame(height: PostgraceTheme.hairlineBorder),
+                    alignment: .bottom
+                )
             }
 
             // Schemas Table
@@ -104,7 +114,7 @@ struct SchemaListView: View {
                     TableColumn("Name") { schema in
                         HStack(spacing: 6) {
                             Image(systemName: schema.isSystem ? "folder.badge.gearshape" : "folder.fill")
-                                .foregroundColor(schema.isSystem ? .secondary : .accentColor)
+                                .foregroundColor(schema.isSystem ? .secondary : PostgraceTheme.accentSky)
                             Text(schema.name)
                                 .fontWeight(schema.name == "public" ? .bold : .regular)
                             if schema.isSystem {
@@ -245,7 +255,7 @@ struct SchemaListView: View {
             HStack(spacing: 8) {
                 Image(systemName: "pencil")
                     .font(.title2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Rename Schema \"\(schema.name)\"")
                         .font(.headline)

@@ -68,6 +68,14 @@ final class ViewModelTests: XCTestCase {
         XCTAssertNotNil(vm.result)
         vm.clearResult()
         XCTAssertNil(vm.result)
+
+        // Test cancelQuery
+        vm.queryText = "SELECT pg_sleep(10);"
+        vm.isExecuting = true
+        XCTAssertTrue(vm.isExecuting)
+        vm.cancelQuery()
+        XCTAssertFalse(vm.isExecuting)
+        XCTAssertEqual(vm.executionError, "Query cancelled by user.")
     }
     
     // MARK: - DatabaseSchema Model Tests
@@ -126,6 +134,13 @@ final class ViewModelTests: XCTestCase {
         let found = vm.savedConnections.first { $0.id == newConn.id }
         XCTAssertEqual(found?.name, "QA Test Server (Updated)")
         
+        // Test duplicate connection
+        let duplicated = vm.duplicateConnection(updatedConn)
+        XCTAssertEqual(duplicated.name, "\(updatedConn.name) Copy")
+        XCTAssertNotEqual(duplicated.id, updatedConn.id)
+        XCTAssertTrue(vm.savedConnections.contains { $0.id == duplicated.id })
+        vm.deleteConnection(duplicated)
+
         // Delete
         vm.deleteConnection(updatedConn)
         XCTAssertFalse(vm.savedConnections.contains { $0.id == newConn.id })

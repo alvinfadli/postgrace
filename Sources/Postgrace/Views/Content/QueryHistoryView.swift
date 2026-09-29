@@ -8,7 +8,7 @@ struct QueryHistoryView: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "clock.arrow.circlepath")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
                 Text("Query History")
                     .font(.headline)
                 Spacer()
@@ -16,12 +16,14 @@ struct QueryHistoryView: View {
                     .font(.caption)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color(NSColor.controlBackgroundColor))
+                    .background(PostgraceTheme.surfaceElevated)
                     .clipShape(Capsule())
             }
             .padding(8)
 
-            Divider()
+            Rectangle()
+                .fill(PostgraceTheme.border)
+                .frame(height: PostgraceTheme.hairlineBorder)
 
             if queryViewModel.queryHistory.isEmpty {
                 VStack(spacing: 8) {
@@ -35,6 +37,7 @@ struct QueryHistoryView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
+                .background(PostgraceTheme.canvas)
             } else {
                 List(queryViewModel.queryHistory.reversed()) { item in
                     QueryHistoryRow(item: item)
@@ -53,8 +56,11 @@ struct QueryHistoryView: View {
                         }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(PostgraceTheme.canvas)
             }
         }
+        .background(PostgraceTheme.surface)
     }
 }
 

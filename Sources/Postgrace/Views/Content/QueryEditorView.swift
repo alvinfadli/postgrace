@@ -4,6 +4,7 @@ import SwiftUI
 struct QueryEditorView: View {
     @Environment(QueryViewModel.self) private var queryViewModel
     @State private var showHistory = false
+    @State private var executionStartTime: Date? = nil
 
     @FocusState private var isEditorFocused: Bool
 
@@ -23,18 +24,6 @@ struct QueryEditorView: View {
                     .frame(minWidth: 220, idealWidth: 260, maxWidth: 350)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    withAnimation {
-                        showHistory.toggle()
-                    }
-                } label: {
-                    Image(systemName: showHistory ? "clock.fill" : "clock")
-                }
-                .help("Toggle Query History")
-            }
-        }
     }
 
     // MARK: - Editor Pane
@@ -42,26 +31,97 @@ struct QueryEditorView: View {
     private func editorPane(queryText: Binding<String>) -> some View {
         VStack(spacing: 0) {
             // Toolbar
-            HStack {
-                Button {
-                    Task {
-                        await queryViewModel.executeQuery()
+            HStack(spacing: 8) {
+                if queryViewModel.isExecuting {
+                    Button {
+                        queryViewModel.cancelQuery()
+                        executionStartTime = nil
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("Cancel (Esc)")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4.5)
+                        .background(PostgraceTheme.destructiveRed)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
-                } label: {
-                    Label("Execute", systemImage: "play.fill")
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .help("Cancel / Abort running query (Esc or ⌘.)")
+                } else {
+                    Button {
+                        executionStartTime = Date()
+                        Task {
+                            await queryViewModel.executeQuery()
+                            executionStartTime = nil
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("Execute (⌘↵)")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4.5)
+                        .background(PostgraceTheme.accentSky)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: [.command])
+                    .disabled(queryViewModel.queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(queryViewModel.isExecuting || queryViewModel.queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                // Format SQL Button
+                Button {
+                    formatQuery()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "text.alignleft")
+                            .font(.system(size: 10))
+                        Text("Format")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4.5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .help("Format SQL Query (⌘⇧F)")
 
                 Button {
                     queryViewModel.clearResult()
                     queryViewModel.queryText = ""
                 } label: {
-                    Label("Clear", systemImage: "trash")
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10))
+                        Text("Clear")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4.5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
                 }
-
-                Divider()
-                    .frame(height: 16)
+                .buttonStyle(.plain)
 
                 // Quick templates
                 Menu {
@@ -92,31 +152,106 @@ struct QueryEditorView: View {
                         """
                     }
                 } label: {
-                    Label("Templates", systemImage: "doc.text")
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 10))
+                        Text("Templates")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4.5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
                 }
-                .controlSize(.small)
+                .menuStyle(.borderlessButton)
 
                 Spacer()
 
                 if queryViewModel.isExecuting {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Executing…")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        if let start = executionStartTime {
+                            TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                                let elapsed = timeline.date.timeIntervalSince(start)
+                                Text(String(format: "Executing… (%.1fs)", elapsed))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundColor(PostgraceTheme.accentSky)
+                            }
+                        } else {
+                            Text("Executing…")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
 
-            Divider()
+                        Button {
+                            queryViewModel.cancelQuery()
+                            executionStartTime = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundColor(PostgraceTheme.destructiveRed)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Cancel query")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PostgraceTheme.destructiveRed.opacity(0.3), lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+
+                // Query history toggle button (no native AppKit toolbar)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showHistory.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: showHistory ? "clock.fill" : "clock")
+                            .font(.system(size: 10))
+                        Text("History")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(showHistory ? PostgraceTheme.accentSky : .secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4.5)
+                    .background(showHistory ? PostgraceTheme.accentSkyMuted : PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(showHistory ? PostgraceTheme.accentSky.opacity(0.4) : PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Toggle Query History")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(PostgraceTheme.surface)
+            .overlay(
+                Rectangle()
+                    .fill(PostgraceTheme.border)
+                    .frame(height: PostgraceTheme.hairlineBorder),
+                alignment: .bottom
+            )
 
             // SQL text editor with tap-to-focus and placeholder
             ZStack(alignment: .topLeading) {
                 TextEditor(text: queryText)
                     .font(.system(.body, design: .monospaced))
                     .focused($isEditorFocused)
+                    .scrollContentBackground(.hidden)
+                    .background(PostgraceTheme.canvas)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(4)
 
@@ -148,27 +283,28 @@ struct QueryEditorView: View {
             HStack {
                 if let result = queryViewModel.result {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundColor(PostgraceTheme.emeraldRw)
                         .font(.caption)
                     Text("\(result.rows.count) rows")
-                        .font(.caption)
+                        .font(.caption.monospacedDigit())
                     Text("•")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(PostgraceTheme.border)
                     Text("\(result.columns.count) columns")
-                        .font(.caption)
+                        .font(.caption.monospacedDigit())
                     Text("•")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(PostgraceTheme.border)
                     Text(String(format: "%.3f s", result.executionTime))
-                        .font(.caption)
+                        .font(.caption.monospacedDigit())
+                        .foregroundColor(.secondary)
                 } else if let error = queryViewModel.executionError {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                         .font(.caption)
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                         .lineLimit(1)
                 } else {
                     Image(systemName: "text.alignleft")
@@ -182,7 +318,13 @@ struct QueryEditorView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color(NSColor.controlBackgroundColor))
+            .background(PostgraceTheme.surface)
+            .overlay(
+                Rectangle()
+                    .fill(PostgraceTheme.border)
+                    .frame(height: PostgraceTheme.hairlineBorder),
+                alignment: .top
+            )
 
             // Result grid
             if let result = queryViewModel.result {
@@ -203,5 +345,11 @@ struct QueryEditorView: View {
         }
         .frame(minHeight: 150, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func formatQuery() {
+        let text = queryViewModel.queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        queryViewModel.queryText = SQLFormatter.format(text)
     }
 }

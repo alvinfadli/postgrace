@@ -116,7 +116,7 @@ struct CreateTableSheet: View {
             HStack(spacing: 10) {
                 Image(systemName: "tablecells.badge.ellipsis")
                     .font(.title2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Create New Table")
                         .font(.headline)
@@ -191,7 +191,7 @@ struct CreateTableSheet: View {
                             .font(.caption)
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
                 }
 
                 // Column Rows Header
@@ -227,8 +227,12 @@ struct CreateTableSheet: View {
                     .padding(.vertical, 4)
                 }
                 .frame(maxHeight: 160)
-                .background(Color(NSColor.controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
             }
 
             // Live SQL DDL Preview Box
@@ -239,14 +243,15 @@ struct CreateTableSheet: View {
                 ScrollView(.horizontal) {
                     Text(generatedSql)
                         .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(PostgraceTheme.accentSky)
                         .padding(8)
                 }
                 .frame(maxWidth: .infinity, minHeight: 65, maxHeight: 75, alignment: .topLeading)
-                .background(Color(NSColor.textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
                 )
             }
 
@@ -286,6 +291,7 @@ struct CreateTableSheet: View {
                     createAction()
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(PostgraceTheme.accentSky)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValidTableName || !isValidColumns || !canCreateInTargetSchema || isCreating)
             }

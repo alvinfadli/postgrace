@@ -44,32 +44,57 @@ public actor SchemaService {
         return schemas
     }
     
-    /// Fetches all tables and views for a given schema.
+    /// Fetches all tables, views, and relation kinds for a given schema.
     public func fetchTables(schema: String) async throws -> [TableInfo] {
-        // Requires parameterization in a real application. 
-        // Using string interpolation here for structural demonstration; beware of SQL injection.
         let query = """
-            SELECT c.relname, c.oid, c.reltuples::bigint as estimated_row_count,
-                   t.table_type
+            SELECT c.relname,
+                   c.oid,
+                   COALESCE(c.reltuples::bigint, 0) AS estimated_row_count,
+                   CASE c.relkind
+                       WHEN 'r' THEN 'BASE TABLE'
+                       WHEN 'p' THEN 'BASE TABLE'
+                       WHEN 'v' THEN 'VIEW'
+                       WHEN 'm' THEN 'MATERIALIZED VIEW'
+                       WHEN 'f' THEN 'FOREIGN TABLE'
+                       ELSE 'BASE TABLE'
+                   END AS table_type
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            JOIN information_schema.tables t ON t.table_name = c.relname AND t.table_schema = n.nspname
             WHERE n.nspname = '\(schema)'
-              AND c.relkind IN ('r', 'v', 'm', 'f');
+              AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+            ORDER BY c.relname ASC;
         """
         let result = try await postgresService.executeQuery(query)
         
         var tables: [TableInfo] = []
         for row in result.rows {
-            if row.count >= 4,
-               case .string(let name) = row[0],
-               case .int(let oid) = row[1],
-               case .int(let rowCount) = row[2],
-               case .string(let typeStr) = row[3] {
-                
-                let tableType = TableType(rawValue: typeStr) ?? .table
-                tables.append(TableInfo(schema: schema, name: name, oid: UInt32(oid), estimatedRowCount: rowCount, tableType: tableType))
-            }
+            guard row.count >= 4,
+                  case .string(let name) = row[0] else { continue }
+            
+            let oid: UInt32 = {
+                if case .int(let o) = row[1] { return UInt32(o) }
+                return 0
+            }()
+            
+            let rowCount: Int64 = {
+                if case .int(let rc) = row[2] { return max(0, rc) }
+                if case .double(let d) = row[2] { return max(0, Int64(d)) }
+                return 0
+            }()
+            
+            let typeStr: String = {
+                if case .string(let t) = row[3] { return t }
+                return "BASE TABLE"
+            }()
+            
+            let tableType = TableType(rawValue: typeStr) ?? .table
+            tables.append(TableInfo(
+                schema: schema,
+                name: name,
+                oid: oid,
+                estimatedRowCount: rowCount,
+                tableType: tableType
+            ))
         }
         return tables
     }
@@ -253,7 +278,7 @@ public actor SchemaService {
                    (n.nspname LIKE 'pg_%' OR n.nspname = 'information_schema') AS is_system,
                    has_schema_privilege(current_user, n.nspname, 'CREATE') AS can_create
             FROM pg_namespace n
-            LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind IN ('r', 'v', 'm', 'f')
+            LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
             GROUP BY n.nspname, n.oid, n.nspowner
             ORDER BY is_system ASC, n.nspname ASC;
         """
@@ -287,8 +312,15 @@ public actor SchemaService {
         let query = """
             SELECT c.relname,
                    c.oid,
-                   t.table_type,
-                   c.reltuples::bigint AS est_row_count,
+                   CASE c.relkind
+                       WHEN 'r' THEN 'BASE TABLE'
+                       WHEN 'p' THEN 'BASE TABLE'
+                       WHEN 'v' THEN 'VIEW'
+                       WHEN 'm' THEN 'MATERIALIZED VIEW'
+                       WHEN 'f' THEN 'FOREIGN TABLE'
+                       ELSE 'BASE TABLE'
+                   END AS table_type,
+                   COALESCE(c.reltuples::bigint, 0) AS est_row_count,
                    pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size,
                    pg_size_pretty(pg_indexes_size(c.oid)) AS index_size,
                    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = n.nspname AND table_name = c.relname)::int AS col_count,
@@ -296,38 +328,70 @@ public actor SchemaService {
                    has_table_privilege(current_user, c.oid, 'INSERT') AS can_insert
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            JOIN information_schema.tables t ON t.table_name = c.relname AND t.table_schema = n.nspname
             WHERE n.nspname = '\(schema)'
-              AND c.relkind IN ('r', 'v', 'm', 'f')
+              AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
             ORDER BY c.relname ASC;
         """
         let result = try await postgresService.executeQuery(query)
         var details: [TableDetail] = []
         for row in result.rows {
-            if row.count >= 9,
-               case .string(let name) = row[0],
-               case .int(let oid) = row[1],
-               case .string(let typeStr) = row[2],
-               case .int(let rowCount) = row[3],
-               case .string(let totalSize) = row[4],
-               case .string(let indexSize) = row[5],
-               case .int(let colCount) = row[6],
-               case .bool(let isOwner) = row[7],
-               case .bool(let canInsert) = row[8] {
-                let tableType = TableType(rawValue: typeStr) ?? .table
-                details.append(TableDetail(
-                    schema: schema,
-                    name: name,
-                    oid: UInt32(oid),
-                    tableType: tableType,
-                    rowCount: rowCount,
-                    totalSize: totalSize,
-                    indexSize: indexSize,
-                    columnCount: Int(colCount),
-                    isOwner: isOwner,
-                    canInsert: canInsert
-                ))
-            }
+            guard row.count >= 9,
+                  case .string(let name) = row[0] else { continue }
+
+            let oid: UInt32 = {
+                if case .int(let o) = row[1] { return UInt32(o) }
+                return 0
+            }()
+
+            let typeStr: String = {
+                if case .string(let t) = row[2] { return t }
+                return "BASE TABLE"
+            }()
+
+            let rowCount: Int64 = {
+                if case .int(let rc) = row[3] { return max(0, rc) }
+                if case .double(let d) = row[3] { return max(0, Int64(d)) }
+                return 0
+            }()
+
+            let totalSize: String = {
+                if case .string(let s) = row[4] { return s }
+                return "0 bytes"
+            }()
+
+            let indexSize: String = {
+                if case .string(let s) = row[5] { return s }
+                return "0 bytes"
+            }()
+
+            let colCount: Int = {
+                if case .int(let c) = row[6] { return Int(c) }
+                return 0
+            }()
+
+            let isOwner: Bool = {
+                if case .bool(let b) = row[7] { return b }
+                return false
+            }()
+
+            let canInsert: Bool = {
+                if case .bool(let b) = row[8] { return b }
+                return false
+            }()
+
+            let tableType = TableType(rawValue: typeStr) ?? .table
+            details.append(TableDetail(
+                schema: schema,
+                name: name,
+                oid: oid,
+                tableType: tableType,
+                rowCount: rowCount,
+                totalSize: totalSize,
+                indexSize: indexSize,
+                columnCount: colCount,
+                isOwner: isOwner,
+                canInsert: canInsert
+            ))
         }
         return details
     }

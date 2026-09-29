@@ -63,21 +63,25 @@ struct DestructiveConfirmationSheet: View {
             // Permission Warning
             if !canPerformAction, let warning = permissionWarning {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "lock.shield.fill")
+                    Image(systemName: "exclamationmark.triangle")
                         .font(.title3)
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Permission Notice")
                             .font(.caption.bold())
-                            .foregroundColor(.red)
+                            .foregroundColor(PostgraceTheme.destructiveRed)
                         Text(warning)
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                 }
                 .padding(8)
-                .background(Color.red.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(PostgraceTheme.destructiveRedMuted)
+                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                        .stroke(PostgraceTheme.destructiveRed.opacity(0.3), lineWidth: PostgraceTheme.hairlineBorder)
+                )
             }
 
             // Description
@@ -131,7 +135,7 @@ struct DestructiveConfirmationSheet: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .tint(PostgraceTheme.destructiveRed)
                 .disabled(!isConfirmed || !canPerformAction)
             }
         }

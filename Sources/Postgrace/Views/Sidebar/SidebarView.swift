@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Sidebar view showing schemas, tables, and views for the active connection.
+/// Custom precision sidebar showing schemas, tables, and views for the active connection.
+/// Designed to match the artifact exactly (without native AppKit List chrome).
 struct SidebarView: View {
     @Environment(ConnectionViewModel.self) private var connectionViewModel
     @Environment(SchemaViewModel.self) private var schemaViewModel
@@ -8,202 +9,371 @@ struct SidebarView: View {
     @Environment(QueryViewModel.self) private var queryViewModel
 
     @State private var searchText = ""
+    @State private var expandedSchemas: Set<String> = ["public"]
+    @State private var hoveredTable: String? = nil
     @State private var schemaForNewTable: String?
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search / Filter Tables Field
+            // 1. FILTER TABLES QUICK INPUT
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
-                    .font(.caption)
+                    .font(.caption2)
                 TextField("Filter tables…", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.caption)
+                    .foregroundColor(.primary)
                 if !searchText.isEmpty {
                     Button {
                         searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
-                            .font(.caption)
+                            .font(.caption2)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(6)
-            .background(Color(NSColor.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .padding(8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(PostgraceTheme.surfaceElevated)
+            .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                    .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+            )
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
-            // Quick Schemas Catalog Button
+            // 2. QUICK ACCESS: SCHEMAS CATALOG BUTTON (⌘1)
             Button {
                 tabViewModel.openSchemasTab()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "square.3.layers.3d")
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(PostgraceTheme.accentSky)
                         .font(.caption)
                     Text("Schemas Catalog")
                         .font(.caption.bold())
+                        .foregroundColor(.primary)
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.secondary)
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color(NSColor.controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.vertical, 6)
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
 
-            Divider()
-
-            // Schema & Table List
-            List {
-                if schemaViewModel.isLoading && schemaViewModel.schemas.isEmpty {
+            // 3. SCHEMAS & RELATIONS SCROLLABLE TREE
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    
+                    // Category Eyebrow & Expand/Collapse controls
                     HStack {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Introspecting database…")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        Text("SCHEMAS & RELATIONS")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary.opacity(0.8))
+
+                        Spacer()
+
+                        Button {
+                            expandedSchemas = Set(schemaViewModel.schemas.map(\.name))
+                        } label: {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Expand All Schemas")
+
+                        Button {
+                            expandedSchemas.removeAll()
+                        } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Collapse All Schemas")
                     }
-                    .padding()
-                }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
 
-                ForEach(schemaViewModel.schemas) { schema in
-                    DisclosureGroup(isExpanded: .constant(true)) {
-                        let allTables = schemaViewModel.tables[schema.name] ?? []
-                        let filteredTables = searchText.isEmpty
-                            ? allTables
-                            : allTables.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
-
-                        if filteredTables.isEmpty && !allTables.isEmpty {
-                            Text("No matching tables")
+                    if schemaViewModel.isLoading && schemaViewModel.schemas.isEmpty {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Loading schemas…")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-                                .padding(.leading, 12)
-                        } else {
-                            ForEach(filteredTables) { table in
-                                tableRow(schema: schema, table: table)
-                            }
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "folder.fill")
-                                .foregroundColor(.accentColor)
-                                .font(.caption)
-                            Text(schema.name)
-                                .font(.caption.bold())
-                            Spacer()
-                            if let count = schemaViewModel.tables[schema.name]?.count {
-                                Text("\(count)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .contextMenu {
-                            Button("Browse Tables Catalog") {
-                                tabViewModel.openTablesTab(schema: schema.name)
-                            }
-                            Button("New Table in '\(schema.name)'…") {
-                                schemaForNewTable = schema.name
-                            }
-                            Divider()
-                            Button("Manage All Schemas") {
-                                tabViewModel.openSchemasTab()
-                            }
-                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
-                    .task(id: schema.name) {
-                        if schemaViewModel.tables[schema.name] == nil {
-                            await schemaViewModel.loadTables(for: schema.name)
-                        }
+
+                    ForEach(schemaViewModel.schemas) { schema in
+                        schemaNodeView(schema)
                     }
+
+                    Spacer(minLength: 16)
                 }
+                .padding(.vertical, 4)
             }
-            .listStyle(.sidebar)
-            .sheet(item: Binding(
-                get: { schemaForNewTable.map { IdentifiableString(value: $0) } },
-                set: { schemaForNewTable = $0?.value }
-            )) { item in
-                CreateTableSheet(initialSchema: item.value)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
+            // 3.5 SELECTED TABLE METADATA SECTION BOX
+            selectedTableMetadataBox
 
-            // Sidebar Footer Actions
+            // 4. SIDEBAR FOOTER
             HStack {
                 Button {
                     Task {
                         await schemaViewModel.refresh()
                     }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.caption)
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption2)
+                        Text("Refresh")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Refresh Schemas")
+                .help("Refresh Schemas & Tables")
 
                 Spacer()
 
                 Button {
                     tabViewModel.openQueryTab()
                 } label: {
-                    Label("New Query", systemImage: "plus")
-                        .font(.caption)
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.caption2.bold())
+                        Text("Query (⌘T)")
+                            .font(.caption2.bold())
+                    }
+                    .foregroundColor(PostgraceTheme.accentSky)
                 }
                 .buttonStyle(.plain)
                 .help("Open New Query Tab (⌘T)")
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color(NSColor.windowBackgroundColor))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(PostgraceTheme.surface)
+            .overlay(
+                Rectangle()
+                    .fill(PostgraceTheme.border)
+                    .frame(height: PostgraceTheme.hairlineBorder),
+                alignment: .top
+            )
+        }
+        .frame(width: 220)
+        .background(PostgraceTheme.surface)
+        .sheet(item: Binding(
+            get: { schemaForNewTable.map { IdentifiableString(value: $0) } },
+            set: { schemaForNewTable = $0?.value }
+        )) { item in
+            CreateTableSheet(initialSchema: item.value)
         }
     }
 
-    // MARK: - Table Row
+    // MARK: - Schema Node
+
+    @ViewBuilder
+    private func schemaNodeView(_ schema: SchemaInfo) -> some View {
+        let isExpanded = expandedSchemas.contains(schema.name)
+        let allTables = schemaViewModel.tables[schema.name] ?? []
+        let filteredTables = searchText.isEmpty
+            ? allTables
+            : allTables.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+
+        VStack(alignment: .leading, spacing: 1) {
+            // Schema Header Row
+            HStack(spacing: 6) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 10)
+
+                Image(systemName: "folder.fill")
+                    .font(.caption)
+                    .foregroundColor(PostgraceTheme.accentSky)
+
+                Text(schema.name)
+                    .font(.caption.bold())
+                    .foregroundColor(.primary)
+
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isExpanded {
+                        expandedSchemas.remove(schema.name)
+                    } else {
+                        expandedSchemas.insert(schema.name)
+                    }
+                }
+                if !isExpanded && schemaViewModel.tables[schema.name] == nil {
+                    Task {
+                        await schemaViewModel.loadTables(for: schema.name)
+                    }
+                }
+            }
+            .contextMenu {
+                Button("Browse Tables Catalog") {
+                    tabViewModel.openTablesTab(schema: schema.name)
+                }
+                Button("New Table in '\(schema.name)'…") {
+                    schemaForNewTable = schema.name
+                }
+                Divider()
+                Button("Manage All Schemas") {
+                    tabViewModel.openSchemasTab()
+                }
+            }
+
+            // Children Tables / Views
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 1) {
+                    if schemaViewModel.tables[schema.name] == nil {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.mini)
+                            Text("Loading tables…")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.leading, 24)
+                        .padding(.vertical, 4)
+                    } else if filteredTables.isEmpty && !allTables.isEmpty {
+                        Text("No matching tables")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 24)
+                            .padding(.vertical, 2)
+                    } else if allTables.isEmpty {
+                        Text("No tables in schema")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 24)
+                            .padding(.vertical, 2)
+                    } else {
+                        ForEach(filteredTables) { table in
+                            tableRow(schema: schema, table: table)
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+            }
+        }
+        .task(id: "\(connectionViewModel.selectedConnection?.database ?? "")_\(schema.name)") {
+            if schemaViewModel.tables[schema.name] == nil {
+                await schemaViewModel.loadTables(for: schema.name)
+            }
+        }
+    }
+
+    // MARK: - Table Row (Matching Artifact with Active Accent Indicator)
 
     @ViewBuilder
     private func tableRow(schema: SchemaInfo, table: TableInfo) -> some View {
+        let isActive: Bool = {
+            if let activeTab = tabViewModel.activeTab,
+               case .table(let tabSchema, let tabTable) = activeTab.type {
+                return tabSchema == schema.name && tabTable == table.name
+            }
+            return false
+        }()
+        let isHovered = hoveredTable == "\(schema.name).\(table.name)"
+
         HStack(spacing: 6) {
             Image(systemName: iconForTableType(table.tableType))
-                .font(.caption)
-                .foregroundColor(colorForTableType(table.tableType))
+                .font(.caption2)
+                .foregroundColor(colorForTableType(table.tableType, isActive: isActive))
 
             Text(table.name)
                 .font(.caption)
+                .fontWeight(isActive ? .semibold : .regular)
+                .foregroundColor(isActive ? PostgraceTheme.accentSky : (isHovered ? .primary : .secondary))
                 .lineLimit(1)
 
             Spacer()
 
-            if table.estimatedRowCount > 0 {
-                Text("\(table.estimatedRowCount)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundColor(.secondary)
+            if table.tableType != .table {
+                Text(table.tableType.rawValue)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(colorForTableType(table.tableType, isActive: isActive))
             }
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3.5)
+        .background(
+            isActive ? PostgraceTheme.accentSkyMuted : (isHovered ? PostgraceTheme.surfaceHover : Color.clear)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .overlay(
+            // Left active indicator line (2px solid sky)
+            Rectangle()
+                .fill(isActive ? PostgraceTheme.accentSky : Color.clear)
+                .frame(width: 2),
+            alignment: .leading
+        )
         .contentShape(Rectangle())
+        .onHover { hovering in
+            hoveredTable = hovering ? "\(schema.name).\(table.name)" : nil
+        }
         .onTapGesture {
             schemaViewModel.selectedSchema = schema
             schemaViewModel.selectedTable = table
             tabViewModel.openTableTab(schema: schema.name, table: table.name)
+            Task {
+                if schemaViewModel.columns["\(schema.name).\(table.name)"] == nil {
+                    await schemaViewModel.loadColumns(for: schema.name, table: table.name)
+                }
+                if schemaViewModel.tableDetails[schema.name] == nil {
+                    await schemaViewModel.loadTableDetails(for: schema.name)
+                }
+            }
         }
         .contextMenu {
             Button("Open Data") {
+                schemaViewModel.selectedSchema = schema
+                schemaViewModel.selectedTable = table
                 tabViewModel.openTableTab(schema: schema.name, table: table.name)
             }
             Button("Open Structure") {
+                schemaViewModel.selectedSchema = schema
+                schemaViewModel.selectedTable = table
                 tabViewModel.openStructureTab(schema: schema.name, table: table.name)
             }
             Divider()
-            Button("Query: SELECT * FROM \"\(table.name)\"") {
+            Button("Copy Table Name") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(table.name, forType: .string)
+            }
+            Button("Copy Qualified Name (\"\(schema.name)\".\"\(table.name)\")") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("\"\(schema.name)\".\"\(table.name)\"", forType: .string)
+            }
+            Button("Copy SELECT * Query") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("SELECT * FROM \"\(schema.name)\".\"\(table.name)\" LIMIT 100;", forType: .string)
+            }
+            Divider()
+            Button("Query in SQL Editor") {
                 queryViewModel.queryText = "SELECT * FROM \"\(schema.name)\".\"\(table.name)\" LIMIT 100;"
                 tabViewModel.openQueryTab()
             }
@@ -219,12 +389,110 @@ struct SidebarView: View {
         }
     }
 
-    private func colorForTableType(_ type: TableType) -> Color {
+    private func colorForTableType(_ type: TableType, isActive: Bool) -> Color {
+        if isActive { return PostgraceTheme.accentSky }
         switch type {
-        case .table: return .accentColor
-        case .view: return .purple
-        case .materializedView: return .indigo
-        case .foreignTable: return .orange
+        case .table: return .secondary
+        case .view: return PostgraceTheme.purpleSuper
+        case .materializedView: return PostgraceTheme.purpleSuper
+        case .foreignTable: return PostgraceTheme.amberRo
+        }
+    }
+
+    // MARK: - Selected Table Metadata Section Box
+
+    @ViewBuilder
+    private var selectedTableMetadataBox: some View {
+        if let table = schemaViewModel.selectedTable {
+            let detail = schemaViewModel.tableDetails[table.schema]?.first(where: { $0.name == table.name })
+            let cols = schemaViewModel.columns["\(table.schema).\(table.name)"]
+
+            VStack(alignment: .leading, spacing: 6) {
+                // Section Header / Eyebrow
+                HStack {
+                    Text("TABLE METADATA")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(table.schema)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(PostgraceTheme.accentSky)
+                }
+
+                // Table Title Row
+                HStack(spacing: 5) {
+                    Image(systemName: iconForTableType(table.tableType))
+                        .font(.system(size: 11))
+                        .foregroundColor(PostgraceTheme.accentSky)
+
+                    Text(table.name)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                    Text(table.tableType == .table ? "TABLE" : table.tableType.rawValue.uppercased())
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(PostgraceTheme.accentSkyMuted)
+                        .foregroundColor(PostgraceTheme.accentSky)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+
+                Divider()
+                    .background(PostgraceTheme.border)
+
+                // Key/Value Metric Pairs
+                VStack(spacing: 3) {
+                    metadataRow(
+                        label: "Rows",
+                        value: {
+                            let rc = detail?.rowCount ?? table.estimatedRowCount
+                            return rc >= 0 ? "\(rc)" : "0"
+                        }()
+                    )
+                    metadataRow(label: "Disk Size", value: detail?.totalSize ?? "—")
+                    if let idxSize = detail?.indexSize, idxSize != "—" && idxSize != "0 bytes" {
+                        metadataRow(label: "Index Size", value: idxSize)
+                    }
+                    metadataRow(
+                        label: "Columns",
+                        value: {
+                            let colCount = detail?.columnCount ?? cols?.count ?? 0
+                            return colCount > 0 ? "\(colCount) cols" : "—"
+                        }()
+                    )
+                    if let pk = cols?.first(where: { $0.isPrimaryKey })?.name {
+                        metadataRow(label: "Primary Key", value: pk, isAccent: true)
+                    }
+                }
+            }
+            .padding(10)
+            .background(PostgraceTheme.surfaceElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+            )
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+        }
+    }
+
+    private func metadataRow(label: String, value: String, isAccent: Bool = false) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(value)
+                .font(.system(size: 10, weight: isAccent ? .semibold : .regular, design: .monospaced))
+                .foregroundColor(isAccent ? PostgraceTheme.accentSky : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }

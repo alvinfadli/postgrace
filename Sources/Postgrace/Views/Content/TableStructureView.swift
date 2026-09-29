@@ -1,150 +1,361 @@
 import SwiftUI
 
-/// Displays table structure: columns, types, constraints, and indexes.
+/// Displays table structure: columns, types, constraints, and defaults in a pixel-accurate grid.
 struct TableStructureView: View {
     @Environment(SchemaViewModel.self) private var schemaViewModel
+    @State private var hoveredRowIndex: Int? = nil
 
     let schema: SchemaInfo
     let table: TableInfo
 
+    // Exact column widths for alignment
+    private let colWidthPK: CGFloat = 44
+    private let colWidthName: CGFloat = 200
+    private let colWidthType: CGFloat = 150
+    private let colWidthSize: CGFloat = 90
+    private let colWidthNullable: CGFloat = 100
+    private let colWidthDefault: CGFloat = 260
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
+            // Header Bar
+            HStack(spacing: 8) {
                 Image(systemName: "list.bullet.rectangle")
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
+                    .font(.system(size: 13, weight: .semibold))
+
                 Text(table.name)
-                    .font(.title3.bold())
-                Text("— \(schema.name)")
-                    .font(.subheadline)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.primary)
+
+                Text("/")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(PostgraceTheme.border)
+
+                Text(schema.name)
+                    .font(.system(size: 12))
                     .foregroundColor(.secondary)
+
                 Spacer()
+
                 Button {
                     Task {
                         await schemaViewModel.loadColumns(for: schema.name, table: table.name)
                     }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10))
+                        Text("Refresh Columns")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4.5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
                 }
-                .controlSize(.small)
+                .buttonStyle(.plain)
             }
-            .padding(8)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(PostgraceTheme.surface)
+            .overlay(
+                Rectangle()
+                    .fill(PostgraceTheme.border)
+                    .frame(height: PostgraceTheme.hairlineBorder),
+                alignment: .bottom
+            )
 
-            Divider()
-
-            // Column list
+            // Column List Grid
             let key = "\(schema.name).\(table.name)"
             if let cols = schemaViewModel.columns[key] {
                 if cols.isEmpty {
-                    Text("No columns found")
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 8) {
+                        Image(systemName: "tablecells.badge.ellipsis")
+                            .font(.system(size: 28))
+                            .foregroundColor(.secondary.opacity(0.6))
+                        Text("No columns found in '\(table.name)'")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(PostgraceTheme.canvas)
                 } else {
-                    columnTable(cols)
+                    columnGrid(cols)
                 }
             } else {
-                ProgressView("Loading columns…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .task {
-                        await schemaViewModel.loadColumns(for: schema.name, table: table.name)
-                    }
+                VStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.regular)
+                    Text("Loading columns structure…")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(PostgraceTheme.canvas)
+                .task {
+                    await schemaViewModel.loadColumns(for: schema.name, table: table.name)
+                }
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PostgraceTheme.canvas)
+    }
+
+    // MARK: - Pixel-Aligned Column Grid
+
+    @ViewBuilder
+    private func columnGrid(_ columns: [ColumnInfo]) -> some View {
+        VStack(spacing: 0) {
+            GeometryReader { proxy in
+                ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            Section {
+                                ForEach(columns, id: \.id) { col in
+                                    let isHovered = hoveredRowIndex == col.ordinalPosition
+                                    let isEven = col.ordinalPosition % 2 == 0
+                                    columnRowView(col: col, isHovered: isHovered, isEven: isEven, availableWidth: proxy.size.width)
+                                }
+                            } header: {
+                                structureHeaderRow(availableWidth: proxy.size.width)
+                            }
+                        }
+                    }
+                    .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
+                }
+            }
+
+            // Bottom Metrics Bar
+            let pkCount = columns.filter(\.isPrimaryKey).count
+            let nullableCount = columns.filter(\.isNullable).count
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(PostgraceTheme.emeraldRw)
+                    .frame(width: 6, height: 6)
+                Text("\(columns.count) columns")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.primary)
+
+                Text("•")
+                    .foregroundColor(PostgraceTheme.border)
+
+                Text("\(pkCount) primary key\(pkCount == 1 ? "" : "s")")
+                    .font(.system(size: 11))
+                    .foregroundColor(pkCount > 0 ? .yellow : .secondary)
+
+                Text("•")
+                    .foregroundColor(PostgraceTheme.border)
+
+                Text("\(nullableCount) nullable")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background(PostgraceTheme.surface)
+            .overlay(
+                Rectangle()
+                    .fill(PostgraceTheme.border)
+                    .frame(height: PostgraceTheme.hairlineBorder),
+                alignment: .top
+            )
         }
     }
 
-    // MARK: - Column Table
+    // MARK: - Sticky Structure Header Row
 
     @ViewBuilder
-    private func columnTable(_ columns: [ColumnInfo]) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                Section {
-                    ForEach(columns) { col in
-                        HStack(spacing: 0) {
-                            // Primary key indicator
-                            Group {
-                                if col.isPrimaryKey {
-                                    Image(systemName: "key.fill")
-                                        .foregroundColor(.yellow)
-                                } else {
-                                    Text("")
-                                }
-                            }
-                            .frame(width: 30)
+    private func structureHeaderRow(availableWidth: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            // # / PK Gutter
+            Text("#")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(.secondary)
+                .frame(width: colWidthPK, height: 32, alignment: .center)
+                .overlay(cellRightDivider, alignment: .trailing)
 
-                            // Column name
-                            Text(col.name)
-                                .font(.system(.body, design: .monospaced))
-                                .fontWeight(col.isPrimaryKey ? .bold : .regular)
-                                .frame(minWidth: 150, alignment: .leading)
-                                .padding(.horizontal, 6)
+            // Column Name
+            Text("COLUMN NAME")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: colWidthName, height: 32, alignment: .leading)
+                .padding(.horizontal, 10)
+                .overlay(cellRightDivider, alignment: .trailing)
 
-                            // Data type
-                            Text(col.dataType)
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundColor(.accentColor)
-                                .frame(minWidth: 120, alignment: .leading)
-                                .padding(.horizontal, 6)
+            // Data Type
+            Text("DATA TYPE")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: colWidthType, height: 32, alignment: .leading)
+                .padding(.horizontal, 10)
+                .overlay(cellRightDivider, alignment: .trailing)
 
-                            // Max length
-                            if let maxLen = col.characterMaxLength {
-                                Text("(\(maxLen))")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 50, alignment: .leading)
-                            } else {
-                                Text("")
-                                    .frame(width: 50)
-                            }
+            // Nullable
+            Text("NULLABLE")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: colWidthNullable, height: 32, alignment: .leading)
+                .padding(.horizontal, 10)
+                .overlay(cellRightDivider, alignment: .trailing)
 
-                            // Nullable
-                            Text(col.isNullable ? "NULL" : "NOT NULL")
-                                .font(.caption)
-                                .foregroundColor(col.isNullable ? .secondary : .orange)
-                                .frame(width: 70, alignment: .leading)
+            // Default Value
+            Text("DEFAULT VALUE")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: colWidthDefault, height: 32, alignment: .leading)
+                .padding(.horizontal, 10)
+                .overlay(cellRightDivider, alignment: .trailing)
 
-                            // Default value
-                            if let def = col.defaultValue {
-                                Text("= \(def)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
+            // Max Length / Size
+            Text("MAX LENGTH")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: colWidthSize, height: 32, alignment: .leading)
+                .padding(.horizontal, 10)
 
-                            Spacer()
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 4)
-                        .background(col.ordinalPosition % 2 == 0 ? Color.clear : Color(NSColor.controlBackgroundColor).opacity(0.5))
-                    }
-                } header: {
-                    HStack(spacing: 0) {
-                        Text("")
-                            .frame(width: 30)
-                        Text("Column")
-                            .font(.caption.bold())
-                            .frame(minWidth: 150, alignment: .leading)
-                            .padding(.horizontal, 6)
-                        Text("Type")
-                            .font(.caption.bold())
-                            .frame(minWidth: 120, alignment: .leading)
-                            .padding(.horizontal, 6)
-                        Text("Size")
-                            .font(.caption.bold())
-                            .frame(width: 50, alignment: .leading)
-                        Text("Nullable")
-                            .font(.caption.bold())
-                            .frame(width: 70, alignment: .leading)
-                        Text("Default")
-                            .font(.caption.bold())
-                        Spacer()
-                    }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 4)
-                    .background(Color(NSColor.windowBackgroundColor))
-                    .border(Color(NSColor.separatorColor), width: 0.5)
+            Spacer(minLength: 0)
+        }
+        .frame(minWidth: availableWidth, alignment: .leading)
+        .frame(height: 32)
+        .background(PostgraceTheme.surface)
+        .overlay(
+            Rectangle()
+                .fill(PostgraceTheme.border)
+                .frame(height: PostgraceTheme.hairlineBorder),
+            alignment: .bottom
+        )
+    }
+
+    @ViewBuilder
+    private func columnRowView(col: ColumnInfo, isHovered: Bool, isEven: Bool, availableWidth: CGFloat) -> some View {
+        let zebraBg = isEven ? PostgraceTheme.canvas : PostgraceTheme.surface.opacity(0.35)
+        let rowBg = isHovered ? PostgraceTheme.surfaceHover : zebraBg
+
+        HStack(spacing: 0) {
+            // Column # / PK Gutter
+            HStack(spacing: 2) {
+                if col.isPrimaryKey {
+                    Image(systemName: "key.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.yellow)
+                }
+                Text("\(col.ordinalPosition)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(col.isPrimaryKey ? .yellow : .secondary)
+            }
+            .frame(width: colWidthPK, height: 28, alignment: .center)
+            .overlay(cellRightDivider, alignment: .trailing)
+
+            // Column Name
+            HStack(spacing: 4) {
+                Text(col.name)
+                    .font(.system(size: 12, weight: col.isPrimaryKey ? .bold : .medium, design: .monospaced))
+                    .foregroundColor(.primary)
+                if col.isPrimaryKey {
+                    Text("PK")
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(Color.yellow.opacity(0.15))
+                        .foregroundColor(.yellow)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
             }
+            .frame(width: colWidthName, height: 28, alignment: .leading)
+            .padding(.horizontal, 10)
+            .overlay(cellRightDivider, alignment: .trailing)
+
+            // Data Type
+            Text(col.dataType)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(PostgraceTheme.accentSky)
+                .frame(width: colWidthType, height: 28, alignment: .leading)
+                .padding(.horizontal, 10)
+                .overlay(cellRightDivider, alignment: .trailing)
+
+            // Nullable
+            HStack {
+                if col.isNullable {
+                    Text("NULL")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(PostgraceTheme.surfaceElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                } else {
+                    Text("NOT NULL")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(PostgraceTheme.amberRo)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(PostgraceTheme.amberRoMuted)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+            }
+            .frame(width: colWidthNullable, height: 28, alignment: .leading)
+            .padding(.horizontal, 10)
+            .overlay(cellRightDivider, alignment: .trailing)
+
+            // Default Value
+            Group {
+                if let def = col.defaultValue {
+                    Text(def)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("—")
+                        .font(.system(size: 11))
+                        .foregroundColor(PostgraceTheme.border)
+                }
+            }
+            .frame(width: colWidthDefault, height: 28, alignment: .leading)
+            .padding(.horizontal, 10)
+            .overlay(cellRightDivider, alignment: .trailing)
+
+            // Max Length
+            Group {
+                if let maxLen = col.characterMaxLength {
+                    Text("\(maxLen)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("—")
+                        .font(.system(size: 11))
+                        .foregroundColor(PostgraceTheme.border)
+                }
+            }
+            .frame(width: colWidthSize, height: 28, alignment: .leading)
+            .padding(.horizontal, 10)
+
+            Spacer(minLength: 0)
         }
+        .frame(minWidth: availableWidth, alignment: .leading)
+        .frame(height: 28)
+        .background(rowBg)
+        .overlay(
+            Rectangle()
+                .fill(PostgraceTheme.border.opacity(0.4))
+                .frame(height: PostgraceTheme.hairlineBorder),
+            alignment: .bottom
+        )
+        .onHover { hovering in
+            hoveredRowIndex = hovering ? col.ordinalPosition : nil
+        }
+    }
+
+    private var cellRightDivider: some View {
+        Rectangle()
+            .fill(PostgraceTheme.border.opacity(0.6))
+            .frame(width: PostgraceTheme.hairlineBorder)
     }
 }

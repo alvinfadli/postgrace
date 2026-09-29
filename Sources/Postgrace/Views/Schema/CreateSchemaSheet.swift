@@ -47,7 +47,7 @@ struct CreateSchemaSheet: View {
             HStack(spacing: 10) {
                 Image(systemName: "folder.badge.plus")
                     .font(.title2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Create New Schema")
                         .font(.headline)
@@ -63,21 +63,25 @@ struct CreateSchemaSheet: View {
             // Permission Warning if user lacks CREATE on database
             if !canCreateSchema {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "lock.trianglebadge.exclamationmark.fill")
+                    Image(systemName: "exclamationmark.triangle")
                         .font(.title3)
-                        .foregroundColor(.orange)
+                        .foregroundColor(PostgraceTheme.amberRo)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Permission Limitation")
                             .font(.caption.bold())
-                            .foregroundColor(.orange)
+                            .foregroundColor(PostgraceTheme.amberRo)
                         Text("User '\(currentUser)' does not have CREATE privilege on this database. Creating a schema will likely result in PostgreSQL error 42501.")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                 }
                 .padding(8)
-                .background(Color.orange.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(PostgraceTheme.amberRoMuted)
+                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                        .stroke(PostgraceTheme.amberRo.opacity(0.3), lineWidth: PostgraceTheme.hairlineBorder)
+                )
             }
 
             // Form Fields
@@ -112,13 +116,14 @@ struct CreateSchemaSheet: View {
                         .foregroundColor(.secondary)
                     Text(generatedSql)
                         .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(PostgraceTheme.accentSky)
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(NSColor.textBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .background(PostgraceTheme.surfaceElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                                .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
                         )
                 }
             }
@@ -159,6 +164,7 @@ struct CreateSchemaSheet: View {
                     createAction()
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(PostgraceTheme.accentSky)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValidIdentifier || isCreating)
             }

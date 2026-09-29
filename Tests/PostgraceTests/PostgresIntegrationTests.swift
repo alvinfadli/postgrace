@@ -344,5 +344,35 @@ final class PostgresIntegrationTests: XCTestCase {
         tableDetails = try await schemaService.fetchTableDetails(schema: "public")
         XCTAssertFalse(tableDetails.contains { $0.name == table2 })
     }
+
+    func testQueryCancellation() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("Local PostgreSQL is not reachable on localhost:5432 with user ddt. Skipping live integration test.")
+        }
+
+        try await postgresService.connect(config: config, password: "")
+
+        let startTime = Date()
+        let queryTask = Task { () -> QueryResult in
+            try await postgresService.executeQuery("SELECT pg_sleep(5);")
+        }
+
+        // Wait 100ms for query to start executing on the PostgreSQL backend
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        // Abort the running query
+        await postgresService.cancelRunningQuery()
+
+        do {
+            _ = try await queryTask.value
+            XCTFail("Query should have been aborted")
+        } catch {
+            let duration = Date().timeIntervalSince(startTime)
+            XCTAssertLessThan(duration, 3.0, "Query cancellation should abort promptly, not wait the full 5 seconds")
+            XCTAssertTrue(error.localizedDescription.lowercased().contains("cancel"), "Error should reflect query cancellation")
+        }
+    }
 }
+
 

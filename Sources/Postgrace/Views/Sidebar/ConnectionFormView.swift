@@ -46,7 +46,7 @@ struct ConnectionFormView: View {
             HStack {
                 Image(systemName: existingConnection == nil ? "plus.circle.fill" : "pencil.circle.fill")
                     .font(.title2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
                 Text(existingConnection == nil ? "New Connection" : "Edit Connection")
                     .font(.title2.bold())
                 Spacer()

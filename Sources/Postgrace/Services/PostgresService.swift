@@ -27,6 +27,7 @@ public actor PostgresService {
     private var connection: PostgresConnection?
     private var currentConfig: SavedConnection?
     private var currentPassword: String?
+    private var backendPID: Int32?
     private let logger: Logger
 
     public init(logger: Logger = Logger(label: "com.postgrace.postgres-service")) {
@@ -74,6 +75,21 @@ public actor PostgresService {
             )
             self.currentConfig = config
             self.currentPassword = password
+
+            // Introspect backend process ID for query cancellation
+            do {
+                if let rows = try await self.connection?.query("SELECT pg_backend_pid();", logger: logger) {
+                    for try await row in rows {
+                        let columns = row.makeRandomAccess()
+                        if let first = columns.first, let pid = try? first.decode(Int32.self) {
+                            self.backendPID = pid
+                        }
+                        break
+                    }
+                }
+            } catch {
+                logger.warning("Could not determine pg_backend_pid: \(error)")
+            }
         } catch {
             throw PostgresServiceError.connectionFailed(error.localizedDescription)
         }
@@ -96,6 +112,43 @@ public actor PostgresService {
             self.connection = nil
             self.currentConfig = nil
             self.currentPassword = nil
+            self.backendPID = nil
+        }
+    }
+
+    /// Cancels the currently running query by sending pg_cancel_backend to PostgreSQL.
+    public func cancelRunningQuery() async {
+        guard let pid = backendPID, let config = currentConfig else { return }
+        let pwd = currentPassword ?? ""
+
+        var tlsConfig: PostgresConnection.Configuration.TLS = .disable
+        if config.sslMode == .require {
+            var nioTLS = TLSConfiguration.makeClientConfiguration()
+            nioTLS.certificateVerification = .none
+            tlsConfig = (try? .require(.init(configuration: nioTLS))) ?? .disable
+        }
+
+        let cancelConfig = PostgresConnection.Configuration(
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: pwd,
+            database: config.database,
+            tls: tlsConfig
+        )
+
+        do {
+            let cancelConn = try await PostgresConnection.connect(
+                on: MultiThreadedEventLoopGroup.singleton.any(),
+                configuration: cancelConfig,
+                id: 999,
+                logger: logger
+            )
+            _ = try await cancelConn.query(PostgresQuery(stringLiteral: "SELECT pg_cancel_backend(\(pid));"), logger: logger)
+            try await cancelConn.close()
+            logger.info("Successfully sent pg_cancel_backend for backend PID \(pid)")
+        } catch {
+            logger.warning("Failed to cancel backend PID \(pid): \(error)")
         }
     }
 
@@ -234,11 +287,44 @@ public actor PostgresService {
                         } else {
                             cellRow.append(.null)
                         }
-                    case .timestamp, .timestamptz, .date, .time, .timetz:
-                        if let v = try? cell.decode(String.self) {
+                    case .timestamp, .timestamptz:
+                        if let date = try? cell.decode(Date.self) {
+                            let formatter = DateFormatter()
+                            formatter.locale = Locale(identifier: "en_US_POSIX")
+                            formatter.timeZone = cell.dataType == .timestamptz ? TimeZone.current : TimeZone(secondsFromGMT: 0)
+                            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                            cellRow.append(.date(formatter.string(from: date)))
+                        } else if let v = try? cell.decode(String.self) {
                             cellRow.append(.date(v))
                         } else {
                             cellRow.append(.null)
+                        }
+                    case .date:
+                        if let date = try? cell.decode(Date.self) {
+                            let formatter = DateFormatter()
+                            formatter.locale = Locale(identifier: "en_US_POSIX")
+                            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                            formatter.dateFormat = "yyyy-MM-dd"
+                            cellRow.append(.date(formatter.string(from: date)))
+                        } else if let v = try? cell.decode(String.self) {
+                            cellRow.append(.date(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .time, .timetz:
+                        if let v = try? cell.decode(String.self) {
+                            cellRow.append(.date(v))
+                        } else {
+                            var buffer = cell.bytes
+                            if let microseconds = buffer?.readInteger(as: Int64.self) {
+                                let totalSeconds = microseconds / 1_000_000
+                                let hours = totalSeconds / 3600
+                                let mins = (totalSeconds % 3600) / 60
+                                let secs = totalSeconds % 60
+                                cellRow.append(.date(String(format: "%02d:%02d:%02d", hours, mins, secs)))
+                            } else {
+                                cellRow.append(.null)
+                            }
                         }
                     case .bytea:
                         if let v = try? cell.decode(Data.self) {
@@ -257,12 +343,20 @@ public actor PostgresService {
                 }
                 cellRows.append(cellRow)
             }
+        } catch is CancellationError {
+            throw PostgresServiceError.queryFailed("Query cancelled by user.")
         } catch let error as PostgresServiceError {
             throw error
         } catch let psqlError as PSQLError {
             let msg = psqlError.serverInfo?[.message] ?? "\(psqlError)"
+            if msg.lowercased().contains("cancel") {
+                throw PostgresServiceError.queryFailed("Query cancelled by user.")
+            }
             throw PostgresServiceError.queryFailed(msg)
         } catch {
+            if error.localizedDescription.lowercased().contains("cancel") {
+                throw PostgresServiceError.queryFailed("Query cancelled by user.")
+            }
             throw PostgresServiceError.queryFailed(String(describing: error))
         }
 

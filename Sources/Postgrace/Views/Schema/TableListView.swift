@@ -44,11 +44,11 @@ struct TableListView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Image(systemName: "folder.fill")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(PostgraceTheme.accentSky)
                         Text(schema)
                             .font(.title3.bold())
                         Text("/")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(PostgraceTheme.border)
                         Text("Tables")
                             .font(.title3)
                             .foregroundColor(.secondary)
@@ -81,8 +81,12 @@ struct TableListView: View {
                 }
                 .padding(6)
                 .frame(width: 180)
-                .background(Color(NSColor.controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
 
                 // Refresh Button
                 Button {
@@ -102,24 +106,29 @@ struct TableListView: View {
                         .fontWeight(.medium)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(PostgraceTheme.accentSky)
                 .controlSize(.regular)
                 .disabled(!canCreateTableInSchema)
                 .help(canCreateTableInSchema ? "Create new table in \(schema)" : "User '\(currentUser)' lacks CREATE privilege on schema '\(schema)'")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color(NSColor.windowBackgroundColor))
-
-            Divider()
+            .background(PostgraceTheme.surface)
+            .overlay(
+                Rectangle()
+                    .fill(PostgraceTheme.border)
+                    .frame(height: PostgraceTheme.hairlineBorder),
+                alignment: .bottom
+            )
 
             // Error Banner
             if let error = errorMessage ?? schemaViewModel.crudError {
                 HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                     Spacer()
                     Button {
                         errorMessage = nil
@@ -131,8 +140,13 @@ struct TableListView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(8)
-                .background(Color.red.opacity(0.1))
-                Divider()
+                .background(PostgraceTheme.destructiveRedMuted)
+                .overlay(
+                    Rectangle()
+                        .fill(PostgraceTheme.border)
+                        .frame(height: PostgraceTheme.hairlineBorder),
+                    alignment: .bottom
+                )
             }
 
             // Tables Table
@@ -352,10 +366,10 @@ struct TableListView: View {
 
     private func colorForTableType(_ type: TableType) -> Color {
         switch type {
-        case .table: return .accentColor
-        case .view: return .purple
-        case .materializedView: return .indigo
-        case .foreignTable: return .orange
+        case .table: return PostgraceTheme.accentSky
+        case .view: return PostgraceTheme.purpleSuper
+        case .materializedView: return Color.indigo
+        case .foreignTable: return PostgraceTheme.amberRo
         }
     }
 
@@ -367,7 +381,7 @@ struct TableListView: View {
             HStack(spacing: 8) {
                 Image(systemName: "pencil")
                     .font(.title2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(PostgraceTheme.accentSky)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Rename Table \"\(table.name)\"")
                         .font(.headline)

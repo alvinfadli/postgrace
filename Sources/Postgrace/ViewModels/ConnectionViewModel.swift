@@ -119,6 +119,31 @@ public class ConnectionViewModel {
         persistConnections()
     }
 
+    /// Retrieve the stored password for a connection ID.
+    public func getStoredPassword(for id: UUID) -> String? {
+        try? keychainService.getPassword(for: id)
+    }
+
+    /// Duplicate an existing saved connection.
+    @discardableResult
+    public func duplicateConnection(_ connection: SavedConnection) -> SavedConnection {
+        let copy = SavedConnection(
+            id: UUID(),
+            name: "\(connection.name) Copy",
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            database: connection.database,
+            sslMode: connection.sslMode,
+            colorTag: connection.colorTag,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        let pwd = getStoredPassword(for: connection.id) ?? ""
+        saveConnection(copy, password: pwd)
+        return copy
+    }
+
     /// Load connections from the JSON file on disk.
     public func loadConnections() {
         do {

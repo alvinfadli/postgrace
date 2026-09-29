@@ -44,11 +44,14 @@ public class SchemaViewModel {
         }
     }
 
-    /// Load all schemas from the connected database.
+    /// Load all schemas from the connected database and prefetch public schema tables.
     public func loadSchemas() async {
         isLoading = true
         do {
             schemas = try await schemaService.fetchSchemas()
+            if schemas.contains(where: { $0.name == "public" }) {
+                await loadTables(for: "public")
+            }
         } catch {
             print("Error loading schemas: \(error)")
         }
@@ -73,6 +76,7 @@ public class SchemaViewModel {
             tables[schema] = try await schemaService.fetchTables(schema: schema)
         } catch {
             print("Error loading tables for \(schema): \(error)")
+            tables[schema] = []
         }
         isLoading = false
     }
@@ -84,6 +88,7 @@ public class SchemaViewModel {
             tableDetails[schema] = try await schemaService.fetchTableDetails(schema: schema)
         } catch {
             print("Error loading table details for \(schema): \(error)")
+            tableDetails[schema] = []
         }
         isLoading = false
     }
@@ -112,6 +117,11 @@ public class SchemaViewModel {
         await loadUserPrivileges()
         await loadSchemas()
         await loadSchemaDetails()
+
+        // Auto-prefetch public schema tables so the expanded sidebar tree is populated immediately
+        if schemas.contains(where: { $0.name == "public" }) {
+            await loadTables(for: "public")
+        }
     }
 
     // MARK: - Schema CRUD Operations

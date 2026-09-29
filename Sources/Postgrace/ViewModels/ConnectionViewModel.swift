@@ -32,6 +32,9 @@ public class ConnectionViewModel {
         return appDirURL.appendingPathComponent("connections.json")
     }
 
+    public var availableDatabases: [DatabaseInfo] = []
+    public var isSwitchingDatabase: Bool = false
+
     /// Connect to a saved connection using stored credentials.
     public func connect(to connection: SavedConnection) async {
         isConnecting = true
@@ -50,11 +53,41 @@ public class ConnectionViewModel {
         isConnecting = false
     }
 
+    /// Loads all available databases from the connected PostgreSQL instance.
+    public func loadAvailableDatabases(schemaService: SchemaService) async {
+        do {
+            availableDatabases = try await schemaService.fetchDatabases()
+        } catch {
+            print("Failed to fetch available databases: \(error)")
+        }
+    }
+
+    /// Switches the active database on the current server.
+    public func switchDatabase(to newDatabaseName: String, schemaViewModel: SchemaViewModel) async {
+        guard let current = selectedConnection, current.database != newDatabaseName else { return }
+        isSwitchingDatabase = true
+        connectionError = nil
+
+        do {
+            try await postgresService.switchDatabase(to: newDatabaseName)
+            var updated = current
+            updated.database = newDatabaseName
+            selectedConnection = updated
+            // Refresh schemas and clear current table selection for the new database
+            await schemaViewModel.refresh()
+        } catch {
+            connectionError = error.localizedDescription
+        }
+
+        isSwitchingDatabase = false
+    }
+
     /// Disconnect from the current connection.
     public func disconnect() async {
         try? await postgresService.disconnect()
         isConnected = false
         selectedConnection = nil
+        availableDatabases = []
     }
 
     /// Test a connection with the given password (does not persist).

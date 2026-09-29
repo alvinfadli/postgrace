@@ -32,6 +32,7 @@ struct PostgraceApp: App {
     @State private var schemaViewModel: SchemaViewModel
     @State private var queryViewModel: QueryViewModel
     @State private var dataGridViewModel: DataGridViewModel
+    @State private var tabViewModel: WorkspaceTabViewModel
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -52,6 +53,7 @@ struct PostgraceApp: App {
         _schemaViewModel = State(initialValue: SchemaViewModel(schemaService: schema))
         _queryViewModel = State(initialValue: QueryViewModel(postgresService: postgres))
         _dataGridViewModel = State(initialValue: DataGridViewModel(postgresService: postgres))
+        _tabViewModel = State(initialValue: WorkspaceTabViewModel())
     }
 
     var body: some Scene {
@@ -61,6 +63,7 @@ struct PostgraceApp: App {
                 .environment(schemaViewModel)
                 .environment(queryViewModel)
                 .environment(dataGridViewModel)
+                .environment(tabViewModel)
         }
         .defaultSize(width: 1200, height: 800)
         .commands {
@@ -73,7 +76,22 @@ struct PostgraceApp: App {
                     connectionViewModel.showingConnectionForm = true
                 }
                 .keyboardShortcut("n", modifiers: .command)
+
+                Button("New Query Tab") {
+                    tabViewModel.openQueryTab()
+                }
+                .keyboardShortcut("t", modifiers: .command)
+                .disabled(!connectionViewModel.isConnected)
+
+                Button("Close Tab") {
+                    if let activeId = tabViewModel.activeTabId {
+                        tabViewModel.closeTab(id: activeId)
+                    }
+                }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(!connectionViewModel.isConnected)
             }
+
             CommandMenu("Query") {
                 Button("Execute") {
                     Task {
@@ -81,6 +99,7 @@ struct PostgraceApp: App {
                     }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!connectionViewModel.isConnected)
             }
         }
 

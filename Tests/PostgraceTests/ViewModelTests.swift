@@ -131,5 +131,47 @@ final class ViewModelTests: XCTestCase {
         XCTAssertFalse(vm.savedConnections.contains { $0.id == newConn.id })
         XCTAssertEqual(vm.savedConnections.count, initialCount)
     }
+    
+    // MARK: - WorkspaceTabViewModel Tests
+    
+    func testWorkspaceTabManagement() {
+        let tabVM = WorkspaceTabViewModel()
+        
+        // Starts with default Query #1 tab
+        XCTAssertEqual(tabVM.tabs.count, 1)
+        XCTAssertEqual(tabVM.tabs[0].title, "Query #1")
+        XCTAssertEqual(tabVM.activeTabId, tabVM.tabs[0].id)
+        
+        // Open table tab
+        tabVM.openTableTab(schema: "public", table: "users")
+        XCTAssertEqual(tabVM.tabs.count, 2)
+        XCTAssertEqual(tabVM.activeTab?.title, "users")
+        
+        // Open same table again (should not duplicate, but select it)
+        tabVM.openTableTab(schema: "public", table: "users")
+        XCTAssertEqual(tabVM.tabs.count, 2)
+        
+        // Open second table
+        tabVM.openTableTab(schema: "public", table: "orders")
+        XCTAssertEqual(tabVM.tabs.count, 3)
+        XCTAssertEqual(tabVM.activeTab?.title, "orders")
+        
+        // Open new query tab
+        tabVM.openQueryTab()
+        XCTAssertEqual(tabVM.tabs.count, 4)
+        XCTAssertEqual(tabVM.activeTab?.title, "Query #2")
+        
+        // Close a tab
+        let query2Id = tabVM.activeTabId!
+        tabVM.closeTab(id: query2Id)
+        XCTAssertEqual(tabVM.tabs.count, 3)
+        XCTAssertEqual(tabVM.activeTab?.title, "orders")
+        
+        // Close other tabs
+        let ordersId = tabVM.activeTabId!
+        tabVM.closeOtherTabs(id: ordersId)
+        XCTAssertEqual(tabVM.tabs.count, 1)
+        XCTAssertEqual(tabVM.activeTab?.title, "orders")
+    }
 }
 

@@ -37,25 +37,52 @@ public class DataGridViewModel {
         currentPage > 0
     }
 
+    public var filterClause: String = ""
+
     /// Load data for a specific table (resets to page 0).
     public func loadTableData(schema: String, table: String) async {
         currentSchema = schema
         currentTable = table
         currentPage = 0
+        filterClause = ""
         isLoading = true
         error = nil
 
         do {
-            totalRows = try await postgresService.fetchTableRowCount(schema: schema, table: table)
+            totalRows = try await postgresService.fetchTableRowCount(schema: schema, table: table, filterClause: "")
             result = try await postgresService.fetchTableData(
                 schema: schema,
                 table: table,
+                filterClause: "",
                 limit: pageSize,
                 offset: 0
             )
         } catch {
             self.error = error.localizedDescription
             result = nil
+        }
+
+        isLoading = false
+    }
+
+    /// Applies the current filter clause and resets to page 0.
+    public func applyFilter() async {
+        guard let schema = currentSchema, let table = currentTable else { return }
+        currentPage = 0
+        isLoading = true
+        error = nil
+
+        do {
+            totalRows = try await postgresService.fetchTableRowCount(schema: schema, table: table, filterClause: filterClause)
+            result = try await postgresService.fetchTableData(
+                schema: schema,
+                table: table,
+                filterClause: filterClause,
+                limit: pageSize,
+                offset: 0
+            )
+        } catch {
+            self.error = error.localizedDescription
         }
 
         isLoading = false
@@ -89,6 +116,7 @@ public class DataGridViewModel {
             result = try await postgresService.fetchTableData(
                 schema: schema,
                 table: table,
+                filterClause: filterClause,
                 limit: pageSize,
                 offset: currentPage * pageSize
             )

@@ -1,99 +1,168 @@
 import SwiftUI
 
-/// Sidebar view showing saved connections and schema tree.
+/// Sidebar view showing schemas, tables, and views for the active connection.
 struct SidebarView: View {
     @Environment(ConnectionViewModel.self) private var connectionViewModel
     @Environment(SchemaViewModel.self) private var schemaViewModel
+    @Environment(WorkspaceTabViewModel.self) private var tabViewModel
+    @Environment(QueryViewModel.self) private var queryViewModel
+
+    @State private var searchText = ""
 
     var body: some View {
-        @Bindable var connVM = connectionViewModel
-
-        List {
-            Section("Connections") {
-                ForEach(connectionViewModel.savedConnections) { connection in
-                    ConnectionRow(connection: connection)
-                        .contextMenu {
-                            Button("Connect") {
-                                Task {
-                                    await connectionViewModel.connect(to: connection)
-                                    await schemaViewModel.loadSchemas()
-                                }
-                            }
-                            Divider()
-                            Button("Edit") {
-                                connectionViewModel.selectedConnection = connection
-                                connectionViewModel.showingEditForm = true
-                            }
-                            Button("Delete", role: .destructive) {
-                                connectionViewModel.deleteConnection(connection)
-                            }
-                        }
-                        .onTapGesture(count: 2) {
-                            Task {
-                                await connectionViewModel.connect(to: connection)
-                                await schemaViewModel.loadSchemas()
-                            }
-                        }
+        VStack(spacing: 0) {
+            // Search / Filter Tables Field
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+                TextField("Filter tables…", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(6)
+            .background(Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .padding(8)
 
-            if connectionViewModel.isConnected {
-                Section("Database Structure") {
-                    if schemaViewModel.isLoading && schemaViewModel.schemas.isEmpty {
-                        ProgressView("Loading schemas…")
+            Divider()
+
+            // Schema & Table List
+            List {
+                if schemaViewModel.isLoading && schemaViewModel.schemas.isEmpty {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Introspecting database…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    ForEach(schemaViewModel.schemas) { schema in
-                        DisclosureGroup {
-                            if let tables = schemaViewModel.tables[schema.name] {
-                                ForEach(tables) { table in
-                                    HStack {
-                                        Image(systemName: iconForTableType(table.tableType))
-                                            .foregroundColor(.accentColor)
-                                        Text(table.name)
-                                        Spacer()
-                                        Text("\(table.estimatedRowCount) rows")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        schemaViewModel.selectedSchema = schema
-                                        schemaViewModel.selectedTable = table
-                                    }
-                                }
-                            } else {
-                                ProgressView()
-                                    .task {
-                                        await schemaViewModel.loadTables(for: schema.name)
-                                    }
+                    .padding()
+                }
+
+                ForEach(schemaViewModel.schemas) { schema in
+                    DisclosureGroup(isExpanded: .constant(true)) {
+                        let allTables = schemaViewModel.tables[schema.name] ?? []
+                        let filteredTables = searchText.isEmpty
+                            ? allTables
+                            : allTables.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+
+                        if filteredTables.isEmpty && !allTables.isEmpty {
+                            Text("No matching tables")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 12)
+                        } else {
+                            ForEach(filteredTables) { table in
+                                tableRow(schema: schema, table: table)
                             }
-                        } label: {
-                            HStack {
-                                Image(systemName: "cylinder.split.1x2")
-                                    .foregroundColor(.accentColor)
-                                Text(schema.name)
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.accentColor)
+                                .font(.caption)
+                            Text(schema.name)
+                                .font(.caption.bold())
+                            Spacer()
+                            if let count = schemaViewModel.tables[schema.name]?.count {
+                                Text("\(count)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
                             }
+                        }
+                    }
+                    .task(id: schema.name) {
+                        if schemaViewModel.tables[schema.name] == nil {
+                            await schemaViewModel.loadTables(for: schema.name)
                         }
                     }
                 }
             }
-        }
-        .listStyle(.sidebar)
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
+            .listStyle(.sidebar)
+
+            Divider()
+
+            // Sidebar Footer Actions
+            HStack {
                 Button {
-                    connectionViewModel.showingConnectionForm = true
+                    Task {
+                        await schemaViewModel.refresh()
+                    }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
                 }
-                .help("New Connection")
+                .buttonStyle(.plain)
+                .help("Refresh Schemas")
+
+                Spacer()
+
+                Button {
+                    tabViewModel.openQueryTab()
+                } label: {
+                    Label("New Query", systemImage: "plus")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .help("Open New Query Tab (⌘T)")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(NSColor.windowBackgroundColor))
+        }
+    }
+
+    // MARK: - Table Row
+
+    @ViewBuilder
+    private func tableRow(schema: SchemaInfo, table: TableInfo) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconForTableType(table.tableType))
+                .font(.caption)
+                .foregroundColor(colorForTableType(table.tableType))
+
+            Text(table.name)
+                .font(.caption)
+                .lineLimit(1)
+
+            Spacer()
+
+            if table.estimatedRowCount > 0 {
+                Text("\(table.estimatedRowCount)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
             }
         }
-        .sheet(isPresented: $connVM.showingConnectionForm) {
-            ConnectionFormView(connection: nil)
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            schemaViewModel.selectedSchema = schema
+            schemaViewModel.selectedTable = table
+            tabViewModel.openTableTab(schema: schema.name, table: table.name)
         }
-        .sheet(isPresented: $connVM.showingEditForm) {
-            ConnectionFormView(connection: connectionViewModel.selectedConnection)
+        .contextMenu {
+            Button("Open Data") {
+                tabViewModel.openTableTab(schema: schema.name, table: table.name)
+            }
+            Button("Open Structure") {
+                tabViewModel.openStructureTab(schema: schema.name, table: table.name)
+            }
+            Divider()
+            Button("Query: SELECT * FROM \"\(table.name)\"") {
+                queryViewModel.queryText = "SELECT * FROM \"\(schema.name)\".\"\(table.name)\" LIMIT 100;"
+                tabViewModel.openQueryTab()
+            }
         }
     }
 
@@ -105,36 +174,13 @@ struct SidebarView: View {
         case .foreignTable: return "link"
         }
     }
-}
 
-/// A single connection row in the sidebar.
-struct ConnectionRow: View {
-    let connection: SavedConnection
-
-    private var tagColor: Color {
-        switch connection.colorTag {
-        case .red: return .red
-        case .blue: return .blue
-        case .green: return .green
-        case .orange: return .orange
-        case .purple: return .purple
-        case .none: return .gray.opacity(0.3)
+    private func colorForTableType(_ type: TableType) -> Color {
+        switch type {
+        case .table: return .accentColor
+        case .view: return .purple
+        case .materializedView: return .indigo
+        case .foreignTable: return .orange
         }
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(tagColor)
-                .frame(width: 10, height: 10)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(connection.name)
-                    .font(.headline)
-                Text("\(connection.host):\(connection.port)/\(connection.database)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, 2)
     }
 }

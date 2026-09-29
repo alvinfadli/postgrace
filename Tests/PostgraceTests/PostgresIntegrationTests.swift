@@ -169,5 +169,79 @@ final class PostgresIntegrationTests: XCTestCase {
             }
         }
     }
+    
+    func testLiveInConnectionDatabaseSwitching() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("PostgreSQL not reachable.")
+        }
+        
+        // 1. Connect to initial database "postgres"
+        try await postgresService.connect(config: config, password: "")
+        let initialDb = await postgresService.currentDatabase
+        XCTAssertEqual(initialDb, "postgres")
+        
+        let initialResult = try await postgresService.executeQuery("SELECT current_database();")
+        XCTAssertEqual(initialResult.rows.first?.first, .string("postgres"))
+        
+        // 2. Discover another available database
+        let databases = try await schemaService.fetchDatabases()
+        guard let targetDb = databases.first(where: { $0.name != "postgres" && $0.name != "template1" && $0.name != "template0" }) else {
+            return // Skip switch if no other database exists
+        }
+        
+        // 3. Switch to target database
+        try await postgresService.switchDatabase(to: targetDb.name)
+        let switchedDb = await postgresService.currentDatabase
+        XCTAssertEqual(switchedDb, targetDb.name)
+        
+        let switchedResult = try await postgresService.executeQuery("SELECT current_database();")
+        XCTAssertEqual(switchedResult.rows.first?.first, .string(targetDb.name))
+        
+        // 4. Switch back cleanly to "postgres"
+        try await postgresService.switchDatabase(to: "postgres")
+        let restoredDb = await postgresService.currentDatabase
+        XCTAssertEqual(restoredDb, "postgres")
+    }
+
+    func testTableDataFilteringWithWhereClause() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("PostgreSQL not reachable.")
+        }
+        try await postgresService.connect(config: config, password: "")
+
+        let tempTableName = "postgrace_filter_\(Int.random(in: 1000...9999))"
+        _ = try await postgresService.executeQuery("""
+        CREATE TABLE public.\(tempTableName) (
+            id INT PRIMARY KEY,
+            status VARCHAR(20) NOT NULL
+        );
+        """)
+        _ = try await postgresService.executeQuery("""
+        INSERT INTO public.\(tempTableName) (id, status) VALUES
+            (1, 'active'),
+            (2, 'inactive'),
+            (3, 'active'),
+            (4, 'pending');
+        """)
+        defer {
+            Task {
+                _ = try? await self.postgresService.executeQuery("DROP TABLE IF EXISTS public.\(tempTableName);")
+            }
+        }
+
+        // Test unfiltered count
+        let totalCount = try await postgresService.fetchTableRowCount(schema: "public", table: tempTableName, filterClause: "")
+        XCTAssertEqual(totalCount, 4)
+
+        // Test filtered count
+        let filteredCount = try await postgresService.fetchTableRowCount(schema: "public", table: tempTableName, filterClause: "status = 'active'")
+        XCTAssertEqual(filteredCount, 2)
+
+        // Test filtered data
+        let filteredData = try await postgresService.fetchTableData(schema: "public", table: tempTableName, filterClause: "status = 'active'", limit: 10, offset: 0)
+        XCTAssertEqual(filteredData.rows.count, 2)
+    }
 }
 

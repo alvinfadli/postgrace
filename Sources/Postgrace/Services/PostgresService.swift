@@ -25,10 +25,22 @@ public enum PostgresServiceError: Error, LocalizedError {
 /// Service for managing a connection to a PostgreSQL database and executing queries.
 public actor PostgresService {
     private var connection: PostgresConnection?
+    private var currentConfig: SavedConnection?
+    private var currentPassword: String?
     private let logger: Logger
 
     public init(logger: Logger = Logger(label: "com.postgrace.postgres-service")) {
         self.logger = logger
+    }
+
+    /// The name of the active database, if connected.
+    public var currentDatabase: String? {
+        currentConfig?.database
+    }
+
+    /// The active connection configuration, if connected.
+    public var activeConfig: SavedConnection? {
+        currentConfig
     }
 
     /// Connects to the PostgreSQL database using the provided configuration.
@@ -60,9 +72,21 @@ public actor PostgresService {
                 id: 1,
                 logger: logger
             )
+            self.currentConfig = config
+            self.currentPassword = password
         } catch {
             throw PostgresServiceError.connectionFailed(error.localizedDescription)
         }
+    }
+
+    /// Switches the active connection to another database on the same host using existing credentials.
+    public func switchDatabase(to newDatabase: String) async throws {
+        guard let config = currentConfig, let password = currentPassword else {
+            throw PostgresServiceError.notConnected
+        }
+        var updatedConfig = config
+        updatedConfig.database = newDatabase
+        try await connect(config: updatedConfig, password: password)
     }
 
     /// Disconnects from the current PostgreSQL database.
@@ -70,6 +94,8 @@ public actor PostgresService {
         if let conn = connection {
             try await conn.close()
             self.connection = nil
+            self.currentConfig = nil
+            self.currentPassword = nil
         }
     }
 
@@ -252,15 +278,24 @@ public actor PostgresService {
         )
     }
 
-    /// Fetches paginated data from a table.
-    public func fetchTableData(schema: String, table: String, limit: Int = 200, offset: Int = 0) async throws -> QueryResult {
-        let sql = "SELECT * FROM \"\(schema)\".\"\(table)\" LIMIT \(limit) OFFSET \(offset)"
+    /// Fetches paginated data from a table with an optional WHERE filter clause.
+    public func fetchTableData(schema: String, table: String, filterClause: String = "", limit: Int = 200, offset: Int = 0) async throws -> QueryResult {
+        var sql = "SELECT * FROM \"\(schema)\".\"\(table)\""
+        let trimmed = filterClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            sql += " WHERE \(trimmed)"
+        }
+        sql += " LIMIT \(limit) OFFSET \(offset)"
         return try await executeQuery(sql)
     }
 
-    /// Fetches the total row count for a table.
-    public func fetchTableRowCount(schema: String, table: String) async throws -> Int64 {
-        let sql = "SELECT COUNT(*) AS total FROM \"\(schema)\".\"\(table)\""
+    /// Fetches the total row count for a table with an optional WHERE filter clause.
+    public func fetchTableRowCount(schema: String, table: String, filterClause: String = "") async throws -> Int64 {
+        var sql = "SELECT COUNT(*) AS total FROM \"\(schema)\".\"\(table)\""
+        let trimmed = filterClause.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            sql += " WHERE \(trimmed)"
+        }
         let result = try await executeQuery(sql)
         if let firstRow = result.rows.first, let firstCell = firstRow.first {
             if case .int(let count) = firstCell { return count }

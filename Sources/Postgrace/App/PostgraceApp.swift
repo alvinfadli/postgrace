@@ -177,11 +177,11 @@ struct PostgraceApp: App {
         let alert = NSAlert()
         alert.messageText = "Postgrace"
         alert.informativeText = """
-        Version 2.0.0 (Slonik Edition)
+        Version 2.1.0 (Modern Flat Edition)
         The Precision macOS Native PostgreSQL Client.
 
         Engineered with 100% Swift, SwiftUI, and PostgresNIO wire protocol.
-        Obsidian Dark Design System • Zero Latency Data Grid.
+        Modern Flat Design System • Zero Latency Data Grid.
 
         Copyright © 2026 Postgrace Contributors.
         Licensed under the MIT License.

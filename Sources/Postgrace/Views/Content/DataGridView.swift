@@ -561,8 +561,8 @@ final class ColumnResizeHandleNSView: NSView {
         super.draw(dirtyRect)
         let isDark = effectiveAppearance.isDark
         let strokeColor = (isDragging || isHovered)
-            ? (isDark ? NSColor(hex: "#38BDF8") : NSColor(hex: "#0284C7"))
-            : (isDark ? NSColor(hex: "#262C36") : NSColor(hex: "#E2E8F0"))
+            ? (isDark ? NSColor(hex: "#3B82F6") : NSColor(hex: "#2563EB"))
+            : (isDark ? NSColor(hex: "#2B2F38") : NSColor(hex: "#E2E8F0"))
 
         strokeColor.setFill()
         let lineRect = NSRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height)

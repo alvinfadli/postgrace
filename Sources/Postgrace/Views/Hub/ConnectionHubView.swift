@@ -38,7 +38,10 @@ struct ConnectionHubView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 42, height: 42)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .shadow(color: PostgraceTheme.accentSky.opacity(0.3), radius: 8, x: 0, y: 2)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                            )
                     } else {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)

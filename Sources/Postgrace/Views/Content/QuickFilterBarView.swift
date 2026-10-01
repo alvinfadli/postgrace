@@ -1,108 +1,224 @@
 import SwiftUI
 
-/// Quick filter bar positioned directly atop the DataGridView matching the artifact.
-/// Features a dark monospace input, cyan "WHERE" badge, and pagination controls.
+/// Visual, dropdown-based multi-condition filter bar for PostgreSQL tables.
+/// Eliminates raw SQL WHERE typing in favor of structured column/operator dropdowns and multiple inputs.
 struct QuickFilterBarView: View {
     @Environment(DataGridViewModel.self) private var dataGridViewModel
-    @Binding var filterClause: String
+    let availableColumns: [String]
     let onApply: () -> Void
 
     private var paginationText: String {
+        guard dataGridViewModel.totalRows > 0 else { return "0 rows" }
         let startRow: Int64 = Int64(dataGridViewModel.currentPage * dataGridViewModel.pageSize + 1)
         let endRow: Int64 = min(startRow + Int64(dataGridViewModel.pageSize) - 1, dataGridViewModel.totalRows)
         return "\(startRow) – \(endRow) of \(dataGridViewModel.totalRows) rows"
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            // "FILTER:" Label
-            Text("FILTER:")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.secondary.opacity(0.8))
+        @Bindable var dataVM = dataGridViewModel
 
-            // Filter Expression Input Box (WHERE badge + text input)
-            HStack(spacing: 6) {
-                Text("WHERE")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(PostgraceTheme.accentSky)
-                    .padding(.leading, 4)
+        VStack(spacing: 8) {
+            // Main Top Bar
+            HStack(spacing: 8) {
+                // Filter Icon & Label
+                HStack(spacing: 5) {
+                    Image(systemName: dataVM.filterRules.isEmpty ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(dataVM.filterRules.isEmpty ? .secondary : PostgraceTheme.accentSky)
 
-                TextField("e.g. status = 'active' AND id > 100", text: $filterClause)
-                    .font(.system(size: 12, design: .monospaced))
-                    .textFieldStyle(.plain)
-                    .foregroundColor(.primary)
-                    .onSubmit {
-                        onApply()
+                    Text("FILTER")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(dataVM.filterRules.isEmpty ? .secondary : .primary)
+                }
+
+                if dataVM.filterRules.isEmpty {
+                    // Quick "+ Add Filter" trigger when no filters exist
+                    Button {
+                        let defaultCol = availableColumns.first ?? dataVM.availableColumns.first ?? ""
+                        dataVM.addFilterRule(defaultColumn: defaultCol)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("Add Filter")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(PostgraceTheme.accentSky)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3.5)
+                        .background(PostgraceTheme.accentSkyMuted)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(PostgraceTheme.accentSky.opacity(0.3), lineWidth: PostgraceTheme.hairlineBorder)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Add a structured filter condition")
+                } else {
+                    // Conjunction Picker: Match ALL (AND) vs Match ANY (OR)
+                    Menu {
+                        ForEach(FilterConjunction.allCases) { conj in
+                            Button {
+                                dataVM.filterConjunction = conj
+                                onApply()
+                            } label: {
+                                HStack {
+                                    Text(conj.label)
+                                    if dataVM.filterConjunction == conj {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(dataVM.filterConjunction.label)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(PostgraceTheme.accentSky)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundColor(PostgraceTheme.accentSky.opacity(0.8))
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(PostgraceTheme.surfaceElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+
+                    if !dataVM.filterClause.isEmpty {
+                        Text("\(dataVM.filterRules.count) active")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(PostgraceTheme.emeraldRw)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(PostgraceTheme.emeraldRwMuted)
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Spacer()
+
+                // Pagination Controls
+                if dataVM.totalRows > 0 {
+                    Text(paginationText)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 2) {
+                        Button {
+                            Task { await dataVM.previousPage() }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(dataVM.hasPreviousPage ? .primary : .secondary.opacity(0.4))
+                                .padding(4)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!dataVM.hasPreviousPage)
+
+                        Button {
+                            Task { await dataVM.nextPage() }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(dataVM.hasNextPage ? .primary : .secondary.opacity(0.4))
+                                .padding(4)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!dataVM.hasNextPage)
+                    }
+                }
+            }
+
+            // Expanded Multiple Filter Rules List
+            if !dataVM.filterRules.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(dataVM.filterRules.enumerated()), id: \.element.id) { index, rule in
+                        filterRuleRow(index: index, rule: rule)
                     }
 
-                if !filterClause.isEmpty {
-                    Button {
-                        filterClause = ""
-                        onApply()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
+                    // Bottom Filter Actions Bar
+                    HStack(spacing: 8) {
+                        // "+ Add Condition" button
+                        Button {
+                            let defaultCol = availableColumns.first ?? dataVM.availableColumns.first ?? ""
+                            dataVM.addFilterRule(defaultColumn: defaultCol)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 8, weight: .bold))
+                            Text("Add Condition")
+                                .font(.system(size: 10, weight: .medium))
+                            }
                             .foregroundColor(.secondary)
-                            .font(.caption2)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(PostgraceTheme.surfaceElevated)
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Add another filter condition")
+
+                        // "Apply Filter" Button
+                        Button {
+                            onApply()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 8, weight: .bold))
+                                Text("Apply")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 3.5)
+                            .background(PostgraceTheme.accentSky)
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.return, modifiers: [.command])
+                        .help("Apply filter (⌘↵)")
+
+                        // "Clear All" Button
+                        Button {
+                            Task {
+                                await dataVM.clearFilters()
+                            }
+                        } label: {
+                            Text("Clear")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3.5)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reset all filters")
+
+                        Spacer()
+
+                        // SQL WHERE Preview
+                        let sql = dataVM.buildFilterClause()
+                        if !sql.isEmpty {
+                            Text("WHERE \(sql)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.secondary.opacity(0.7))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 4)
+                    .padding(.top, 2)
                 }
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .frame(maxWidth: 420)
-            .background(PostgraceTheme.surfaceElevated)
-            .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
-                    .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-            )
-
-            // Apply Button
-            Button {
-                onApply()
-            } label: {
-                Text("Apply")
-                    .font(.caption.bold())
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(PostgraceTheme.accentSky)
-                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            // Pagination Controls
-            if dataGridViewModel.totalRows > 0 {
-                Text(paginationText)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.secondary)
-
-                HStack(spacing: 2) {
-                    Button {
-                        Task { await dataGridViewModel.previousPage() }
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(dataGridViewModel.hasPreviousPage ? .primary : .secondary.opacity(0.4))
-                            .padding(4)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!dataGridViewModel.hasPreviousPage)
-
-                    Button {
-                        Task { await dataGridViewModel.nextPage() }
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(dataGridViewModel.hasNextPage ? .primary : .secondary.opacity(0.4))
-                            .padding(4)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!dataGridViewModel.hasNextPage)
-                }
+                .padding(.top, 2)
             }
         }
         .padding(.horizontal, 10)
@@ -114,5 +230,160 @@ struct QuickFilterBarView: View {
                 .frame(height: PostgraceTheme.hairlineBorder),
             alignment: .bottom
         )
+    }
+
+    // MARK: - Filter Rule Row
+
+    @ViewBuilder
+    private func filterRuleRow(index: Int, rule: FilterRule) -> some View {
+        let cols = availableColumns.isEmpty ? dataGridViewModel.availableColumns : availableColumns
+
+        HStack(spacing: 6) {
+            // WHERE / AND / OR Prefix badge
+            Text(index == 0 ? "WHERE" : dataGridViewModel.filterConjunction.rawValue)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(index == 0 ? PostgraceTheme.accentSky : PostgraceTheme.amberRo)
+                .frame(width: 46, alignment: .trailing)
+
+            // 1. Column Selection Dropdown
+            Menu {
+                ForEach(cols, id: \.self) { colName in
+                    Button {
+                        if let ruleIndex = dataGridViewModel.filterRules.firstIndex(where: { $0.id == rule.id }) {
+                            dataGridViewModel.filterRules[ruleIndex].column = colName
+                        }
+                    } label: {
+                        HStack {
+                            Text(colName)
+                            if rule.column == colName {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(rule.column.isEmpty ? "Select column…" : rule.column)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(rule.column.isEmpty ? .secondary : .primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .frame(minWidth: 110, alignment: .leading)
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
+            }
+            .menuStyle(.borderlessButton)
+
+            // 2. Comparison Operator Dropdown
+            Menu {
+                ForEach(FilterOperator.allCases) { op in
+                    Button {
+                        if let ruleIndex = dataGridViewModel.filterRules.firstIndex(where: { $0.id == rule.id }) {
+                            dataGridViewModel.filterRules[ruleIndex].op = op
+                        }
+                    } label: {
+                        HStack {
+                            Text(op.label)
+                            if rule.op == op {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(rule.op.label)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(PostgraceTheme.accentSky)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .frame(minWidth: 120, alignment: .leading)
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
+            }
+            .menuStyle(.borderlessButton)
+
+            // 3. Value Input Field (or hidden if IS NULL / IS NOT NULL)
+            if rule.op.requiresValue {
+                HStack(spacing: 4) {
+                    TextField("Value…", text: Binding(
+                        get: { rule.value },
+                        set: { newVal in
+                            if let ruleIndex = dataGridViewModel.filterRules.firstIndex(where: { $0.id == rule.id }) {
+                                dataGridViewModel.filterRules[ruleIndex].value = newVal
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.primary)
+                    .onSubmit {
+                        onApply()
+                    }
+
+                    if !rule.value.isEmpty {
+                        Button {
+                            if let ruleIndex = dataGridViewModel.filterRules.firstIndex(where: { $0.id == rule.id }) {
+                                dataGridViewModel.filterRules[ruleIndex].value = ""
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .frame(minWidth: 140, maxWidth: 260)
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
+            } else {
+                Text("(no value required)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .italic()
+                    .padding(.horizontal, 6)
+            }
+
+            // 4. Remove Rule Button
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    dataGridViewModel.removeFilterRule(id: rule.id)
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .padding(5)
+            }
+            .buttonStyle(.plain)
+            .help("Remove this condition")
+
+            Spacer(minLength: 0)
+        }
     }
 }

@@ -65,4 +65,56 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(result.rowsAffected, 2)
         XCTAssertEqual(result.statusMessage, "SELECT 2")
     }
+
+    func testFilterRuleSQLExpression() {
+        // Equals numeric
+        let numRule = FilterRule(column: "id", op: .equals, value: "42")
+        XCTAssertEqual(numRule.toSQLExpression(), "\"id\" = 42")
+
+        // Equals string
+        let strRule = FilterRule(column: "status", op: .equals, value: "active")
+        XCTAssertEqual(strRule.toSQLExpression(), "\"status\" = 'active'")
+
+        // Not equals
+        let notEqRule = FilterRule(column: "role", op: .notEquals, value: "guest")
+        XCTAssertEqual(notEqRule.toSQLExpression(), "\"role\" != 'guest'")
+
+        // Comparison operators
+        let gtRule = FilterRule(column: "price", op: .greaterThan, value: "19.99")
+        XCTAssertEqual(gtRule.toSQLExpression(), "\"price\" > 19.99")
+
+        let lteRule = FilterRule(column: "stock", op: .lessThanOrEqual, value: "0")
+        XCTAssertEqual(lteRule.toSQLExpression(), "\"stock\" <= 0")
+
+        // Contains (ILIKE)
+        let containsRule = FilterRule(column: "email", op: .contains, value: "example.com")
+        XCTAssertEqual(containsRule.toSQLExpression(), "\"email\"::text ILIKE '%example.com%'")
+
+        // Starts with
+        let startsRule = FilterRule(column: "name", op: .startsWith, value: "John")
+        XCTAssertEqual(startsRule.toSQLExpression(), "\"name\"::text ILIKE 'John%'")
+
+        // Ends with
+        let endsRule = FilterRule(column: "filename", op: .endsWith, value: ".pdf")
+        XCTAssertEqual(endsRule.toSQLExpression(), "\"filename\"::text ILIKE '%.pdf'")
+
+        // IS NULL and IS NOT NULL
+        let isNullRule = FilterRule(column: "deleted_at", op: .isNull, value: "")
+        XCTAssertEqual(isNullRule.toSQLExpression(), "\"deleted_at\" IS NULL")
+
+        let isNotNullRule = FilterRule(column: "confirmed_at", op: .isNotNull, value: "")
+        XCTAssertEqual(isNotNullRule.toSQLExpression(), "\"confirmed_at\" IS NOT NULL")
+
+        // SQL injection escaping in string value
+        let injectRule = FilterRule(column: "user", op: .equals, value: "admin' OR '1'='1")
+        XCTAssertEqual(injectRule.toSQLExpression(), "\"user\" = 'admin'' OR ''1''=''1'")
+
+        // Empty column returns nil
+        let emptyCol = FilterRule(column: "", op: .equals, value: "abc")
+        XCTAssertNil(emptyCol.toSQLExpression())
+
+        // Empty value on value-requiring operator returns nil
+        let emptyVal = FilterRule(column: "status", op: .equals, value: "")
+        XCTAssertNil(emptyVal.toSQLExpression())
+    }
 }

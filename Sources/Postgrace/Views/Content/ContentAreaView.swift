@@ -42,11 +42,12 @@ struct ContentAreaView: View {
 
     @ViewBuilder
     private func tableDataView(schema: String, table: String) -> some View {
-        @Bindable var dataVM = dataGridViewModel
+        let cols = schemaViewModel.columns["\(schema).\(table)"]?.map(\.name)
+            ?? dataGridViewModel.availableColumns
 
         VStack(spacing: 0) {
             // Quick Filter Bar directly above grid
-            QuickFilterBarView(filterClause: $dataVM.filterClause) {
+            QuickFilterBarView(availableColumns: cols) {
                 Task {
                     await dataGridViewModel.applyFilter()
                 }
@@ -69,9 +70,8 @@ struct ContentAreaView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                     Button("Reset Filter & Retry") {
-                        dataGridViewModel.filterClause = ""
                         Task {
-                            await dataGridViewModel.loadTableData(schema: schema, table: table)
+                            await dataGridViewModel.clearFilters()
                         }
                     }
                     .controlSize(.small)

@@ -296,5 +296,55 @@ final class ViewModelTests: XCTestCase {
         let stringLiteral = "it's dangerous; --"
         XCTAssertEqual(stringLiteral.pgEscapedLiteral, "it''s dangerous; --")
     }
+
+    func testDataGridViewModelMultipleFilterRules() {
+        let postgres = PostgresService()
+        let vm = DataGridViewModel(postgresService: postgres)
+        vm.availableColumns = ["id", "username", "status", "created_at"]
+
+        // Initially no filters
+        XCTAssertEqual(vm.buildFilterClause(), "")
+
+        // Add first rule (dropdown column & operator & input)
+        vm.addFilterRule(defaultColumn: "status")
+        XCTAssertEqual(vm.filterRules.count, 1)
+        vm.filterRules[0].column = "status"
+        vm.filterRules[0].op = .equals
+        vm.filterRules[0].value = "active"
+
+        XCTAssertEqual(vm.buildFilterClause(), "\"status\" = 'active'")
+
+        // Add second rule (multiple query conditions)
+        vm.addFilterRule(defaultColumn: "username")
+        XCTAssertEqual(vm.filterRules.count, 2)
+        vm.filterRules[1].column = "username"
+        vm.filterRules[1].op = .contains
+        vm.filterRules[1].value = "admin"
+
+        // Default conjunction is AND
+        XCTAssertEqual(vm.buildFilterClause(), "\"status\" = 'active' AND \"username\"::text ILIKE '%admin%'")
+
+        // Switch conjunction to OR
+        vm.filterConjunction = .or
+        XCTAssertEqual(vm.buildFilterClause(), "\"status\" = 'active' OR \"username\"::text ILIKE '%admin%'")
+
+        // Add IS NULL rule
+        vm.addFilterRule(defaultColumn: "created_at")
+        XCTAssertEqual(vm.filterRules.count, 3)
+        vm.filterRules[2].column = "created_at"
+        vm.filterRules[2].op = .isNotNull
+
+        XCTAssertEqual(vm.buildFilterClause(), "\"status\" = 'active' OR \"username\"::text ILIKE '%admin%' OR \"created_at\" IS NOT NULL")
+
+        // Remove a rule
+        let secondId = vm.filterRules[1].id
+        vm.removeFilterRule(id: secondId)
+        XCTAssertEqual(vm.filterRules.count, 2)
+        XCTAssertEqual(vm.buildFilterClause(), "\"status\" = 'active' OR \"created_at\" IS NOT NULL")
+
+        // Clear all filters
+        vm.filterRules.removeAll()
+        XCTAssertEqual(vm.buildFilterClause(), "")
+    }
 }
 

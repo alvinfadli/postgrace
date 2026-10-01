@@ -4,7 +4,7 @@
 **Target:** Postgrace Native macOS Client (macOS 14+, Apple Silicon & Intel)  
 **PostgreSQL Target:** PostgreSQL 12 through 18+  
 **Audit Date:** 2026-09-30 (Updated 2026-10-01)  
-**Status:** **PASSED (All Critical & High-Risk Defects Remediated, 29/29 Automated Tests Passing)**
+**Status:** **PASSED (All Critical & High-Risk Defects Remediated, 31/31 Automated Tests Passing)**
 
 ---
 
@@ -97,13 +97,13 @@ All **6 Confirmed Architectural Defects** identified in the initial audit have b
 
 ---
 
-## 3. Test Suite Execution Breakdown (29/29 Passing)
+## 3. Test Suite Execution Breakdown (31/31 Passing)
 
 ```
-Test Suite 'All tests' started at 2026-10-01 16:27:41.765
+Test Suite 'All tests' started at 2026-10-01 17:09:27.452
 Target: arm64e-apple-macos14.0
-Executed 29 tests, with 0 failures (0 unexpected) in 1.452 seconds
-Result: 100% PASSED (29/29)
+Executed 31 tests, with 0 failures (0 unexpected) in 1.715 seconds
+Result: 100% PASSED (31/31)
 ```
 
 | Suite | Test Case | Scope | Status |
@@ -123,10 +123,12 @@ Result: 100% PASSED (29/29)
 | `ViewModelTests` | `testPaginationCalculations` | Boundary math for pagination | **PASSED** |
 | `ViewModelTests` | `testConnectionViewModelManagement` | Connection CRUD & keychain interaction | **PASSED** |
 | `ViewModelTests` | `testEditConnectionFormAndSafePasswordRetention` | Edit connection in-place & keychain credential safety | **PASSED** |
+| `ViewModelTests` | `testDataGridViewModelMultipleFilterRules` | Dropdown multi-rule builder, AND/OR conjunction | **PASSED** |
 | `SQLFormatterTests` | `testPreservesCommentsAndDollarQuotes` | Line comments, block comments, dollar quotes (`$$`) | **PASSED** |
 | `SQLFormatterTests` | `testBasicSelectFormatting` | Keyword capitalization & formatting | **PASSED** |
 | `ModelTests` | `testCellValueDisplayString` | Formatted cell value output | **PASSED** |
 | `ModelTests` | `testSavedConnectionCodable` | JSON serialization fidelity | **PASSED** |
+| `ModelTests` | `testFilterRuleSQLExpression` | Safe SQL compilation across 11 comparison operators | **PASSED** |
 
 ---
 
@@ -182,3 +184,40 @@ A deep architectural audit of the SwiftUI rendering tree and macOS AppKit bridge
 - **In-Place Workspace Sync:** When the active connection is edited (e.g. renamed or given a new color tag), `ConnectionViewModel.selectedConnection` is updated in-place, instantly updating titlebars and breadcrumbs across the app.
 - **Port & Field Validation:** Added real-time port validation ($1 \le \text{port} \le 65535$) and disabled save on invalid input.
 - **Automated Verification:** Verified via `testEditConnectionFormAndSafePasswordRetention` in `ViewModelTests.swift`.
+
+---
+
+## 6. Visual Multi-Condition Filter Builder (Dropdown & Structured Rules)
+
+### 6.1 Vulnerability & Usability Root Cause
+- **Previous Design:** The table data filter bar allowed direct typing into a raw SQL `WHERE` text field.
+- **Risks & UX Friction:**
+  1. **SQL Injection & Malformed Syntax:** Unvalidated text input frequently caused query crashes on invalid SQL tokens, unmatched single quotes, or invalid column names.
+  2. **High Friction for Users:** Required users to memorize exact column names, exact SQL operators (`ILIKE '%...%'`), and quotation rules.
+
+### 6.2 Structured Rule Architecture (`FilterRule.swift`)
+- **`FilterOperator` Enumeration:** 11 safe operators:
+  - Equals (`=`), Not Equals (`!=`)
+  - Greater Than (`>`), Less Than (`<`), Greater or Equal (`>=`), Less or Equal (`<=`)
+  - Text pattern matches: Contains (`contains`), Starts With (`starts with`), Ends With (`ends with`) using `ILIKE` with `::text` cast
+  - Nullability checks: `is NULL`, `is NOT NULL` (no value input required)
+- **`FilterConjunction`:** `AND` (Match ALL) and `OR` (Match ANY).
+- **Safe SQL Compilation:**
+  - Column identifiers are quoted with `.pgQuotedIdentifier` to prevent injection and preserve case sensitivity.
+  - String values are escaped with `.pgEscapedLiteral` (replacing `'` with `''`).
+  - Text pattern matching casts columns to text (`"col"::text ILIKE '%val%'`) to safely support UUID, integer, and JSON columns without type casting errors.
+
+### 6.3 UI Implementation (`QuickFilterBarView.swift`)
+- **Visual Builder:**
+  - Column Picker dropdown pre-populated from table schema.
+  - Operator Picker dropdown.
+  - Value input text field (automatically hides and displays `(no value required)` for `is NULL`/`is NOT NULL`).
+  - `+ Add Condition` button to chain multiple rules.
+  - Remove condition `[×]` button for individual rule removal.
+  - `Match ALL (AND)` / `Match ANY (OR)` segmented picker.
+  - `Apply Filter` (Return shortcut) and `Clear` buttons.
+- **Integration:** Directly wired to `DataGridViewModel` with automated SQL generation and reload pipeline.
+- **Automated Verification:**
+  - `testFilterRuleSQLExpression`: Verified SQL output and escape safety across all operators.
+  - `testDataGridViewModelMultipleFilterRules`: Verified multi-rule building, conjunction switching, and rule removal.
+

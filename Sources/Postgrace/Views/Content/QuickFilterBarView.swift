@@ -56,40 +56,24 @@ struct QuickFilterBarView: View {
                     .buttonStyle(.plain)
                     .help("Add a structured filter condition")
                 } else {
-                    // Conjunction Picker: Match ALL (AND) vs Match ANY (OR)
-                    Menu {
-                        ForEach(FilterConjunction.allCases) { conj in
-                            Button {
-                                dataVM.filterConjunction = conj
+                    // Conjunction Picker: Match ALL (AND) vs Match ANY (OR) via clean segmented picker
+                    if dataVM.filterRules.count > 1 {
+                        Picker("", selection: Binding(
+                            get: { dataVM.filterConjunction },
+                            set: {
+                                dataVM.filterConjunction = $0
                                 onApply()
-                            } label: {
-                                HStack {
-                                    Text(conj.label)
-                                    if dataVM.filterConjunction == conj {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
                             }
+                        )) {
+                            Text("AND").tag(FilterConjunction.and)
+                            Text("OR").tag(FilterConjunction.or)
                         }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(dataVM.filterConjunction.label)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(PostgraceTheme.accentSky)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 7, weight: .bold))
-                                .foregroundColor(PostgraceTheme.accentSky.opacity(0.8))
-                        }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(PostgraceTheme.surfaceElevated)
-                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-                        )
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .frame(width: 84)
+                        .help("Match ALL conditions (AND) or ANY condition (OR)")
                     }
-                    .menuStyle(.borderlessButton)
 
                     if !dataVM.filterClause.isEmpty {
                         Text("\(dataVM.filterRules.count) active")
@@ -262,26 +246,22 @@ struct QuickFilterBarView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Text(rule.column.isEmpty ? "Select column…" : rule.column)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(rule.column.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .frame(minWidth: 110, alignment: .leading)
-                .background(PostgraceTheme.surfaceElevated)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-                )
+                Text(rule.column.isEmpty ? "Select column…" : rule.column)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(rule.column.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .frame(minWidth: 100, alignment: .leading)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
             }
             .menuStyle(.borderlessButton)
+            .help("Click to select column")
 
             // 2. Comparison Operator Dropdown
             Menu {
@@ -300,26 +280,22 @@ struct QuickFilterBarView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Text(rule.op.label)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(PostgraceTheme.accentSky)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .frame(minWidth: 120, alignment: .leading)
-                .background(PostgraceTheme.surfaceElevated)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-                )
+                Text(rule.op.label)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(PostgraceTheme.accentSky)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .frame(minWidth: 36, alignment: .center)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
             }
             .menuStyle(.borderlessButton)
+            .help("Click to change operator")
 
             // 3. Value Input Field (or hidden if IS NULL / IS NOT NULL)
             if rule.op.requiresValue {

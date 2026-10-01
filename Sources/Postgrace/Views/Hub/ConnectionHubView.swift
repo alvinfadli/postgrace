@@ -7,6 +7,8 @@ struct ConnectionHubView: View {
     @Environment(SchemaViewModel.self) private var schemaViewModel
     @State private var selectedConnectionId: UUID?
     @State private var searchText: String = ""
+    @State private var lastClickTime: Date = .distantPast
+    @State private var lastClickedId: UUID? = nil
 
     private var filteredConnections: [SavedConnection] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -65,7 +67,7 @@ struct ConnectionHubView: View {
                     Spacer()
 
                     Button {
-                        connectionViewModel.showingConnectionForm = true
+                        connectionViewModel.openNewConnectionForm()
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "plus")
@@ -97,7 +99,7 @@ struct ConnectionHubView: View {
                 // Favorite Instances Section
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("FAVORITE INSTANCES")
+                        Text("FAVORITE INSTANCES (\(connectionViewModel.savedConnections.count))")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
                             .tracking(0.5)
@@ -145,7 +147,7 @@ struct ConnectionHubView: View {
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                             Button("Create First Connection") {
-                                connectionViewModel.showingConnectionForm = true
+                                connectionViewModel.openNewConnectionForm()
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(PostgraceTheme.accentSky)
@@ -175,7 +177,7 @@ struct ConnectionHubView: View {
 
                 // Card Bottom Action Bar
                 HStack {
-                    Text("Press ⌘Return to connect immediately")
+                    Text("Press ⌘Return or double-click to connect")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -215,6 +217,14 @@ struct ConnectionHubView: View {
                     .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.standardBorder)
             )
             .shadow(color: Color.black.opacity(0.35), radius: 24, x: 0, y: 12)
+            .onKeyPress(.downArrow) {
+                selectNextConnection()
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                selectPreviousConnection()
+                return .handled
+            }
         }
         .onAppear {
             if selectedConnectionId == nil, let first = connectionViewModel.savedConnections.first {
@@ -228,7 +238,29 @@ struct ConnectionHubView: View {
             ?? filteredConnections.first
     }
 
-    // MARK: - Instance Card Row
+    private func selectNextConnection() {
+        guard let currentId = selectedConnectionId,
+              let currentIndex = filteredConnections.firstIndex(where: { $0.id == currentId }) else {
+            selectedConnectionId = filteredConnections.first?.id
+            return
+        }
+        if currentIndex < filteredConnections.count - 1 {
+            selectedConnectionId = filteredConnections[currentIndex + 1].id
+        }
+    }
+
+    private func selectPreviousConnection() {
+        guard let currentId = selectedConnectionId,
+              let currentIndex = filteredConnections.firstIndex(where: { $0.id == currentId }) else {
+            selectedConnectionId = filteredConnections.first?.id
+            return
+        }
+        if currentIndex > 0 {
+            selectedConnectionId = filteredConnections[currentIndex - 1].id
+        }
+    }
+
+    // MARK: - Instance Card Row (Immediate 0ms Selection Highlight)
 
     @ViewBuilder
     private func instanceCard(_ conn: SavedConnection) -> some View {
@@ -237,13 +269,21 @@ struct ConnectionHubView: View {
         HStack(spacing: 12) {
             // Status Dot
             Circle()
-                .fill(conn.name.lowercased().contains("prod") ? PostgraceTheme.amberRo : PostgraceTheme.emeraldRw)
+                .fill(conn.colorTag.color)
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(conn.name)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(isSelected ? PostgraceTheme.accentSky : .primary)
+                HStack(spacing: 6) {
+                    Text(conn.name)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(isSelected ? PostgraceTheme.accentSky : .primary)
+
+                    if conn.colorTag != .none {
+                        Circle()
+                            .fill(conn.colorTag.color)
+                            .frame(width: 6, height: 6)
+                    }
+                }
 
                 Text("\(conn.host):\(conn.port) / \(conn.database) • user: \(conn.username)")
                     .font(.system(size: 11, design: .monospaced))
@@ -252,14 +292,40 @@ struct ConnectionHubView: View {
 
             Spacer()
 
-            if isSelected {
-                Text("Selected")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(PostgraceTheme.accentSky)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(PostgraceTheme.accentSkyMuted)
-                    .clipShape(Capsule())
+            // Quick actions & Selected indicator
+            HStack(spacing: 6) {
+                // Edit button directly on card
+                Button {
+                    connectionViewModel.openEditConnectionForm(for: conn)
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 10))
+                        Text("Edit")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Edit connection '\(conn.name)'")
+
+                if isSelected {
+                    Text("Selected")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(PostgraceTheme.accentSky)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(PostgraceTheme.accentSkyMuted)
+                        .clipShape(Capsule())
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -272,26 +338,32 @@ struct ConnectionHubView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            // Immediate zero-delay selection highlight
+            let now = Date()
+            let isDouble = (lastClickedId == conn.id && now.timeIntervalSince(lastClickTime) < 0.35)
             selectedConnectionId = conn.id
-        }
-        .onTapGesture(count: 2) {
-            selectedConnectionId = conn.id
-            connectTo(conn)
+            lastClickTime = now
+            lastClickedId = conn.id
+            if isDouble {
+                connectTo(conn)
+            }
         }
         .contextMenu {
             Button("Connect") { connectTo(conn) }
             Divider()
+            Button("Edit Connection...") {
+                connectionViewModel.openEditConnectionForm(for: conn)
+            }
             Button("Duplicate Connection") {
                 let copy = connectionViewModel.duplicateConnection(conn)
                 selectedConnectionId = copy.id
             }
-            Button("Edit") {
-                connectionViewModel.selectedConnection = conn
-                connectionViewModel.showingEditForm = true
-            }
             Divider()
-            Button("Delete", role: .destructive) {
+            Button("Delete Connection", role: .destructive) {
                 connectionViewModel.deleteConnection(conn)
+                if selectedConnectionId == conn.id {
+                    selectedConnectionId = filteredConnections.first(where: { $0.id != conn.id })?.id
+                }
             }
         }
     }

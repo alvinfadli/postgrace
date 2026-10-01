@@ -53,7 +53,7 @@ public actor PostgresService {
         var tlsConfig: PostgresConnection.Configuration.TLS = .disable
         if config.sslMode == .require {
             var nioTLS = TLSConfiguration.makeClientConfiguration()
-            nioTLS.certificateVerification = .none
+            nioTLS.certificateVerification = .fullVerification
             tlsConfig = try .require(.init(configuration: nioTLS))
         }
 
@@ -124,7 +124,7 @@ public actor PostgresService {
         var tlsConfig: PostgresConnection.Configuration.TLS = .disable
         if config.sslMode == .require {
             var nioTLS = TLSConfiguration.makeClientConfiguration()
-            nioTLS.certificateVerification = .none
+            nioTLS.certificateVerification = .fullVerification
             tlsConfig = (try? .require(.init(configuration: nioTLS))) ?? .disable
         }
 
@@ -157,7 +157,7 @@ public actor PostgresService {
         var tlsConfig: PostgresConnection.Configuration.TLS = .disable
         if config.sslMode == .require {
             var nioTLS = TLSConfiguration.makeClientConfiguration()
-            nioTLS.certificateVerification = .none
+            nioTLS.certificateVerification = .fullVerification
             tlsConfig = try .require(.init(configuration: nioTLS))
         }
 
@@ -202,19 +202,17 @@ public actor PostgresService {
         do {
             let rows = try await conn.query(PostgresQuery(stringLiteral: sql), logger: logger)
 
+            // Extract column metadata directly from row sequence (works even for 0-row results)
+            for col in rows.columns {
+                resultColumns.append(ResultColumn(
+                    name: col.name,
+                    dataTypeOID: col.dataType.rawValue,
+                    dataTypeName: "\(col.dataType)"
+                ))
+            }
+
             for try await row in rows {
                 let columns = row.makeRandomAccess()
-
-                // Build column metadata from the first row's cell descriptors
-                if resultColumns.isEmpty {
-                    for cell in columns {
-                        resultColumns.append(ResultColumn(
-                            name: cell.columnName,
-                            dataTypeOID: cell.dataType.rawValue,
-                            dataTypeName: "\(cell.dataType)"
-                        ))
-                    }
-                }
 
                 var cellRow: [CellValue] = []
                 for cell in columns {
@@ -274,10 +272,11 @@ public actor PostgresService {
                             cellRow.append(.null)
                         }
                     case .numeric:
-                        if let v = try? cell.decode(Double.self) {
+                        // Prioritize Decimal decoding to retain exact precision (e.g. monetary / crypto / high-precision values)
+                        if let dec = try? cell.decode(Decimal.self) {
+                            cellRow.append(.string("\(dec)"))
+                        } else if let v = try? cell.decode(Double.self) {
                             cellRow.append(.double(v))
-                        } else if let v = try? cell.decode(String.self) {
-                            cellRow.append(.string(v))
                         } else {
                             cellRow.append(.null)
                         }
@@ -372,12 +371,15 @@ public actor PostgresService {
         )
     }
 
-    /// Fetches paginated data from a table with an optional WHERE filter clause.
-    public func fetchTableData(schema: String, table: String, filterClause: String = "", limit: Int = 200, offset: Int = 0) async throws -> QueryResult {
-        var sql = "SELECT * FROM \"\(schema)\".\"\(table)\""
+    /// Fetches paginated data from a table with an optional WHERE filter clause and optional ORDER BY clause.
+    public func fetchTableData(schema: String, table: String, filterClause: String = "", orderBy: String? = nil, limit: Int = 200, offset: Int = 0) async throws -> QueryResult {
+        var sql = "SELECT * FROM \(schema.pgQuotedIdentifier).\(table.pgQuotedIdentifier)"
         let trimmed = filterClause.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             sql += " WHERE \(trimmed)"
+        }
+        if let order = orderBy, !order.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sql += " ORDER BY \(order)"
         }
         sql += " LIMIT \(limit) OFFSET \(offset)"
         return try await executeQuery(sql)
@@ -385,7 +387,7 @@ public actor PostgresService {
 
     /// Fetches the total row count for a table with an optional WHERE filter clause.
     public func fetchTableRowCount(schema: String, table: String, filterClause: String = "") async throws -> Int64 {
-        var sql = "SELECT COUNT(*) AS total FROM \"\(schema)\".\"\(table)\""
+        var sql = "SELECT COUNT(*) AS total FROM \(schema.pgQuotedIdentifier).\(table.pgQuotedIdentifier)"
         let trimmed = filterClause.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             sql += " WHERE \(trimmed)"

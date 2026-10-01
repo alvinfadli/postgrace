@@ -10,7 +10,6 @@ struct SidebarView: View {
 
     @State private var searchText = ""
     @State private var expandedSchemas: Set<String> = ["public"]
-    @State private var hoveredTable: String? = nil
     @State private var schemaForNewTable: String?
 
     var body: some View {
@@ -297,87 +296,39 @@ struct SidebarView: View {
             }
             return false
         }()
-        let isHovered = hoveredTable == "\(schema.name).\(table.name)"
 
-        HStack(spacing: 6) {
-            Image(systemName: iconForTableType(table.tableType))
-                .font(.caption2)
-                .foregroundColor(colorForTableType(table.tableType, isActive: isActive))
-
-            Text(table.name)
-                .font(.caption)
-                .fontWeight(isActive ? .semibold : .regular)
-                .foregroundColor(isActive ? PostgraceTheme.accentSky : (isHovered ? .primary : .secondary))
-                .lineLimit(1)
-
-            Spacer()
-
-            if table.tableType != .table {
-                Text(table.tableType.rawValue)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(colorForTableType(table.tableType, isActive: isActive))
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3.5)
-        .background(
-            isActive ? PostgraceTheme.accentSkyMuted : (isHovered ? PostgraceTheme.surfaceHover : Color.clear)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-        .overlay(
-            // Left active indicator line (2px solid sky)
-            Rectangle()
-                .fill(isActive ? PostgraceTheme.accentSky : Color.clear)
-                .frame(width: 2),
-            alignment: .leading
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            hoveredTable = hovering ? "\(schema.name).\(table.name)" : nil
-        }
-        .onTapGesture {
-            schemaViewModel.selectedSchema = schema
-            schemaViewModel.selectedTable = table
-            tabViewModel.openTableTab(schema: schema.name, table: table.name)
-            Task {
-                if schemaViewModel.columns["\(schema.name).\(table.name)"] == nil {
-                    await schemaViewModel.loadColumns(for: schema.name, table: table.name)
-                }
-                if schemaViewModel.tableDetails[schema.name] == nil {
-                    await schemaViewModel.loadTableDetails(for: schema.name)
-                }
-            }
-        }
-        .contextMenu {
-            Button("Open Data") {
+        SidebarTableRowView(
+            schema: schema,
+            table: table,
+            isActive: isActive,
+            onSelect: {
                 schemaViewModel.selectedSchema = schema
                 schemaViewModel.selectedTable = table
                 tabViewModel.openTableTab(schema: schema.name, table: table.name)
-            }
-            Button("Open Structure") {
+                Task {
+                    if schemaViewModel.columns["\(schema.name).\(table.name)"] == nil {
+                        await schemaViewModel.loadColumns(for: schema.name, table: table.name)
+                    }
+                    if schemaViewModel.tableDetails[schema.name] == nil {
+                        await schemaViewModel.loadTableDetails(for: schema.name)
+                    }
+                }
+            },
+            onOpenData: {
+                schemaViewModel.selectedSchema = schema
+                schemaViewModel.selectedTable = table
+                tabViewModel.openTableTab(schema: schema.name, table: table.name)
+            },
+            onOpenStructure: {
                 schemaViewModel.selectedSchema = schema
                 schemaViewModel.selectedTable = table
                 tabViewModel.openStructureTab(schema: schema.name, table: table.name)
-            }
-            Divider()
-            Button("Copy Table Name") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(table.name, forType: .string)
-            }
-            Button("Copy Qualified Name (\"\(schema.name)\".\"\(table.name)\")") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString("\"\(schema.name)\".\"\(table.name)\"", forType: .string)
-            }
-            Button("Copy SELECT * Query") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString("SELECT * FROM \"\(schema.name)\".\"\(table.name)\" LIMIT 100;", forType: .string)
-            }
-            Divider()
-            Button("Query in SQL Editor") {
+            },
+            onQueryInEditor: {
                 queryViewModel.queryText = "SELECT * FROM \"\(schema.name)\".\"\(table.name)\" LIMIT 100;"
                 tabViewModel.openQueryTab()
             }
-        }
+        )
     }
 
     private func iconForTableType(_ type: TableType) -> String {
@@ -493,6 +444,105 @@ struct SidebarView: View {
                 .foregroundColor(isAccent ? PostgraceTheme.accentSky : .primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+        }
+    }
+}
+
+// MARK: - Decoupled Table Row View (Localized Hover State)
+
+struct SidebarTableRowView: View {
+    let schema: SchemaInfo
+    let table: TableInfo
+    let isActive: Bool
+    let onSelect: () -> Void
+    let onOpenData: () -> Void
+    let onOpenStructure: () -> Void
+    let onQueryInEditor: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconForTableType(table.tableType))
+                .font(.caption2)
+                .foregroundColor(colorForTableType(table.tableType, isActive: isActive))
+
+            Text(table.name)
+                .font(.caption)
+                .fontWeight(isActive ? .semibold : .regular)
+                .foregroundColor(isActive ? PostgraceTheme.accentSky : (isHovered ? .primary : .secondary))
+                .lineLimit(1)
+
+            Spacer()
+
+            if table.tableType != .table {
+                Text(table.tableType.rawValue)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(colorForTableType(table.tableType, isActive: isActive))
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3.5)
+        .background(
+            isActive ? PostgraceTheme.accentSkyMuted : (isHovered ? PostgraceTheme.surfaceHover : Color.clear)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .overlay(
+            Rectangle()
+                .fill(isActive ? PostgraceTheme.accentSky : Color.clear)
+                .frame(width: 2),
+            alignment: .leading
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .onTapGesture {
+            onSelect()
+        }
+        .contextMenu {
+            Button("Open Data") {
+                onOpenData()
+            }
+            Button("Open Structure") {
+                onOpenStructure()
+            }
+            Divider()
+            Button("Copy Table Name") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(table.name, forType: .string)
+            }
+            Button("Copy Qualified Name (\"\(schema.name)\".\"\(table.name)\")") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("\"\(schema.name)\".\"\(table.name)\"", forType: .string)
+            }
+            Button("Copy SELECT * Query") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("SELECT * FROM \"\(schema.name)\".\"\(table.name)\" LIMIT 100;", forType: .string)
+            }
+            Divider()
+            Button("Query in SQL Editor") {
+                onQueryInEditor()
+            }
+        }
+    }
+
+    private func iconForTableType(_ type: TableType) -> String {
+        switch type {
+        case .table: return "tablecells"
+        case .view: return "eye"
+        case .materializedView: return "eye.fill"
+        case .foreignTable: return "link"
+        }
+    }
+
+    private func colorForTableType(_ type: TableType, isActive: Bool) -> Color {
+        if isActive { return PostgraceTheme.accentSky }
+        switch type {
+        case .table: return .secondary
+        case .view: return PostgraceTheme.purpleSuper
+        case .materializedView: return PostgraceTheme.purpleSuper
+        case .foreignTable: return PostgraceTheme.amberRo
         }
     }
 }

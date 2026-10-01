@@ -16,6 +16,7 @@ struct ConnectionFormView: View {
     @State private var testResult: TestResult?
     @State private var isTesting = false
     @State private var showPassword = false
+    @State private var showDeleteConfirmation = false
 
     enum FormField: Hashable {
         case name, host, port, database, username, password
@@ -40,31 +41,64 @@ struct ConnectionFormView: View {
         _colorTag = State(initialValue: connection?.colorTag ?? .none)
     }
 
+    private var isPortValid: Bool {
+        guard let p = Int(port.trimmingCharacters(in: .whitespaces)) else { return false }
+        return p >= 1 && p <= 65535
+    }
+
+    private var isFormValid: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !host.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !username.trimmingCharacters(in: .whitespaces).isEmpty &&
+        isPortValid
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
+            HStack(spacing: 12) {
                 Image(systemName: existingConnection == nil ? "plus.circle.fill" : "pencil.circle.fill")
                     .font(.title2)
                     .foregroundColor(PostgraceTheme.accentSky)
-                Text(existingConnection == nil ? "New Connection" : "Edit Connection")
-                    .font(.title2.bold())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(existingConnection == nil ? "New Connection" : "Edit Connection")
+                        .font(.title3.bold())
+                    if let existing = existingConnection {
+                        Text(existing.name)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 Spacer()
             }
-            .padding()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(PostgraceTheme.surface)
 
             Divider()
 
             // Form
             Form {
-                Section("Connection") {
-                    TextField("Display Name", text: $name)
+                Section("Connection Details") {
+                    TextField("Display Name (e.g. Local Development)", text: $name)
                         .focused($focusedField, equals: .name)
-                    TextField("Host", text: $host)
+
+                    TextField("Host (e.g. localhost, 127.0.0.1)", text: $host)
                         .focused($focusedField, equals: .host)
-                    TextField("Port", text: $port)
-                        .focused($focusedField, equals: .port)
-                    TextField("Database", text: $database)
+
+                    HStack {
+                        TextField("Port", text: $port)
+                            .focused($focusedField, equals: .port)
+                        if !isPortValid {
+                            Text("1–65535")
+                                .font(.caption2)
+                                .foregroundColor(PostgraceTheme.destructiveRed)
+                        }
+                    }
+
+                    TextField("Default Database", text: $database)
                         .focused($focusedField, equals: .database)
                 }
 
@@ -95,7 +129,7 @@ struct ConnectionFormView: View {
                 Section("Options") {
                     Picker("SSL Mode", selection: $sslMode) {
                         Text("Disable").tag(SSLMode.disable)
-                        Text("Require").tag(SSLMode.require)
+                        Text("Require (Strict TLS)").tag(SSLMode.require)
                     }
 
                     Picker("Color Tag", selection: $colorTag) {
@@ -111,35 +145,60 @@ struct ConnectionFormView: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
 
-            // Test result
+            // Test result banner
             if let result = testResult {
-                HStack {
+                HStack(spacing: 8) {
                     switch result {
                     case .success:
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("Connection successful!")
-                            .foregroundColor(.green)
+                            .foregroundColor(PostgraceTheme.emeraldRw)
+                        Text("Connection test successful! PostgreSQL server is reachable.")
+                            .font(.caption)
+                            .foregroundColor(PostgraceTheme.emeraldRw)
                     case .failure(let msg):
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.red)
+                            .foregroundColor(PostgraceTheme.destructiveRed)
                         Text(msg)
-                            .foregroundColor(.red)
+                            .font(.caption)
+                            .foregroundColor(PostgraceTheme.destructiveRed)
                             .lineLimit(2)
                     }
                     Spacer()
                 }
-                .font(.subheadline)
-                .padding(.horizontal)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(PostgraceTheme.surfaceElevated)
                 .transition(.opacity)
             }
 
             Divider()
 
-            // Actions
-            HStack {
-                Button("Test Connection") {
+            // Actions Bottom Bar
+            HStack(spacing: 12) {
+                if let existing = existingConnection {
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                            Text("Delete")
+                        }
+                        .font(.caption)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
+                    }
+                    .buttonStyle(.plain)
+                    .confirmationDialog("Delete connection '\(existing.name)'?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                        Button("Delete Connection", role: .destructive) {
+                            connectionViewModel.deleteConnection(existing)
+                            dismiss()
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This will remove '\(existing.name)' and its stored credentials from Postgrace.")
+                    }
+                }
+
+                Button {
                     testResult = nil
                     isTesting = true
                     Task {
@@ -152,13 +211,16 @@ struct ConnectionFormView: View {
                         }
                         isTesting = false
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isTesting {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                        Text("Test Connection")
+                    }
                 }
-                .disabled(isTesting || host.isEmpty || username.isEmpty)
-
-                if isTesting {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+                .disabled(isTesting || !isFormValid)
 
                 Spacer()
 
@@ -172,13 +234,22 @@ struct ConnectionFormView: View {
                     connectionViewModel.saveConnection(conn, password: password)
                     dismiss()
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(PostgraceTheme.accentSky)
                 .keyboardShortcut(.defaultAction)
-                .disabled(name.isEmpty || host.isEmpty || username.isEmpty)
+                .disabled(!isFormValid)
             }
-            .padding()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(PostgraceTheme.surface)
         }
-        .frame(width: 450, height: 520)
+        .frame(width: 480, height: 540)
         .onAppear {
+            if let conn = existingConnection, password.isEmpty {
+                if let stored = connectionViewModel.getStoredPassword(for: conn.id) {
+                    password = stored
+                }
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 focusedField = .name
             }
@@ -186,13 +257,14 @@ struct ConnectionFormView: View {
     }
 
     private func buildConnection() -> SavedConnection {
-        SavedConnection(
+        let cleanPort = Int(port.trimmingCharacters(in: .whitespaces)) ?? 5432
+        return SavedConnection(
             id: existingConnection?.id ?? UUID(),
-            name: name,
-            host: host,
-            port: Int(port) ?? 5432,
-            username: username,
-            database: database,
+            name: name.trimmingCharacters(in: .whitespaces),
+            host: host.trimmingCharacters(in: .whitespaces),
+            port: cleanPort,
+            username: username.trimmingCharacters(in: .whitespaces),
+            database: database.trimmingCharacters(in: .whitespaces),
             sslMode: sslMode,
             colorTag: colorTag,
             createdAt: existingConnection?.createdAt ?? Date(),

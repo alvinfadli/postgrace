@@ -17,8 +17,8 @@ struct ContentAreaView: View {
                 switch activeTab.type {
                 case .table(let schema, let table):
                     tableDataView(schema: schema, table: table)
-                case .query:
-                    QueryEditorView()
+                case .query(let id, _):
+                    QueryEditorView(queryViewModel: tabViewModel.queryViewModel(for: id))
                 case .structure(let schema, let table):
                     tableStructureView(schema: schema, table: table)
                 case .schemas:
@@ -27,7 +27,12 @@ struct ContentAreaView: View {
                     TableListView(schema: schema)
                 }
             } else {
-                QueryEditorView()
+                if let firstQuery = tabViewModel.tabs.first(where: {
+                    if case .query = $0.type { return true }
+                    return false
+                }) {
+                    QueryEditorView(queryViewModel: tabViewModel.queryViewModel(for: firstQuery.id))
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

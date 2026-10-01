@@ -21,23 +21,80 @@ struct WorkspaceToolbarView: View {
 
             // Left: Server & Database Breadcrumbs
             if let conn = connectionViewModel.selectedConnection {
-                // Server Pill
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(tagColor(conn.colorTag))
-                        .frame(width: 7, height: 7)
-                    Text(conn.name)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.primary)
+                // Server Pill with Quick Switch & Edit
+                Menu {
+                    Section("Active Server") {
+                        Label("\(conn.name) (\(conn.host):\(conn.port))", systemImage: "server.rack")
+                        Button {
+                            connectionViewModel.openEditConnectionForm(for: conn)
+                        } label: {
+                            Label("Edit Connection '\(conn.name)'...", systemImage: "pencil")
+                        }
+                    }
+
+                    if connectionViewModel.savedConnections.count > 1 {
+                        Section("Switch Saved Connection") {
+                            ForEach(connectionViewModel.savedConnections) { otherConn in
+                                if otherConn.id != conn.id {
+                                    Button {
+                                        Task {
+                                            await connectionViewModel.connect(to: otherConn)
+                                            if connectionViewModel.isConnected {
+                                                await schemaViewModel.refresh()
+                                                let databases = await schemaViewModel.loadAvailableDatabases()
+                                                connectionViewModel.availableDatabases = databases
+                                            }
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(otherConn.name)
+                                            Spacer()
+                                            Text("\(otherConn.host):\(otherConn.port)")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button {
+                        connectionViewModel.openNewConnectionForm()
+                    } label: {
+                        Label("New Connection...", systemImage: "plus")
+                    }
+
+                    Button {
+                        Task {
+                            await connectionViewModel.disconnect()
+                        }
+                    } label: {
+                        Label("Manage Connections (Hub)...", systemImage: "rectangle.stack")
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(tagColor(conn.colorTag))
+                            .frame(width: 7, height: 7)
+                        Text(conn.name)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.primary)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3.5)
-                .background(PostgraceTheme.surfaceElevated)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-                )
+                .menuStyle(.borderlessButton)
+                .help("Active Server: \(conn.name) — Click to Edit or Switch Server")
 
                 Text("/")
                     .font(.system(size: 11, design: .monospaced))

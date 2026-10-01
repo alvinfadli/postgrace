@@ -373,6 +373,45 @@ final class PostgresIntegrationTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.lowercased().contains("cancel"), "Error should reflect query cancellation")
         }
     }
+
+    func testZeroRowQueryPreservesColumns() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("Local PostgreSQL is not reachable on localhost:5432 with user ddt. Skipping live integration test.")
+        }
+
+        try await postgresService.connect(config: config, password: "")
+
+        let sql = "SELECT 101 AS user_id, 'alice' AS user_name, true AS is_active WHERE 1 = 0;"
+        let result = try await postgresService.executeQuery(sql)
+
+        XCTAssertEqual(result.rows.count, 0, "Query should return 0 rows")
+        XCTAssertEqual(result.columns.count, 3, "Column metadata must be preserved even on zero-row results")
+        XCTAssertEqual(result.columns[0].name, "user_id")
+        XCTAssertEqual(result.columns[1].name, "user_name")
+        XCTAssertEqual(result.columns[2].name, "is_active")
+    }
+
+    func testHighPrecisionNumericFidelity() async throws {
+        let isReachable = try await postgresService.testConnection(config: config, password: "")
+        guard isReachable else {
+            throw XCTSkip("Local PostgreSQL is not reachable on localhost:5432 with user ddt. Skipping live integration test.")
+        }
+
+        try await postgresService.connect(config: config, password: "")
+
+        let exactNumericStr = "12345678901234567890.123456789012345678"
+        let sql = "SELECT \(exactNumericStr)::numeric AS exact_val;"
+        let result = try await postgresService.executeQuery(sql)
+
+        XCTAssertEqual(result.rows.count, 1)
+        let row = result.rows[0]
+        if case .string(let val) = row[0] {
+            XCTAssertEqual(val, exactNumericStr, "High-precision NUMERIC must be preserved verbatim without IEEE floating point precision loss")
+        } else {
+            XCTFail("Expected string representation for high-precision NUMERIC cell, got: \(row[0])")
+        }
+    }
 }
 
 

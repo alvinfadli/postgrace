@@ -146,6 +146,59 @@ final class ViewModelTests: XCTestCase {
         XCTAssertFalse(vm.savedConnections.contains { $0.id == newConn.id })
         XCTAssertEqual(vm.savedConnections.count, initialCount)
     }
+
+    func testEditConnectionFormAndSafePasswordRetention() {
+        let postgres = PostgresService()
+        let keychain = KeychainService()
+        let vm = ConnectionViewModel(postgresService: postgres, keychainService: keychain)
+
+        let conn = SavedConnection(
+            name: "Production Replica",
+            host: "192.168.1.100",
+            port: 5433,
+            username: "postgres_admin",
+            database: "analytics",
+            colorTag: .red
+        )
+
+        // 1. Initial Save
+        vm.saveConnection(conn, password: "super_secure_vault_pass")
+        XCTAssertEqual(vm.getStoredPassword(for: conn.id), "super_secure_vault_pass")
+
+        // 2. Open Edit Form
+        vm.openEditConnectionForm(for: conn)
+        XCTAssertTrue(vm.showingEditForm)
+        XCTAssertEqual(vm.connectionToEdit?.id, conn.id)
+
+        // 3. Edit Connection attributes without changing password (empty string passed)
+        var edited = conn
+        edited.name = "Production Analytics (Renamed)"
+        edited.port = 5434
+        vm.selectedConnection = conn // Simulate active connection
+
+        vm.saveConnection(edited, password: "")
+
+        // Verify in-place update in savedConnections list
+        let found = vm.savedConnections.first { $0.id == conn.id }
+        XCTAssertNotNil(found)
+        XCTAssertEqual(found?.name, "Production Analytics (Renamed)")
+        XCTAssertEqual(found?.port, 5434)
+
+        // Verify active selectedConnection was updated in-place
+        XCTAssertEqual(vm.selectedConnection?.name, "Production Analytics (Renamed)")
+        XCTAssertEqual(vm.selectedConnection?.port, 5434)
+
+        // Verify password was NOT wiped by empty save
+        XCTAssertEqual(vm.getStoredPassword(for: conn.id), "super_secure_vault_pass")
+
+        // 4. Open New Form resets connectionToEdit
+        vm.openNewConnectionForm()
+        XCTAssertTrue(vm.showingConnectionForm)
+        XCTAssertNil(vm.connectionToEdit)
+
+        // Cleanup
+        vm.deleteConnection(edited)
+    }
     
     // MARK: - WorkspaceTabViewModel Tests
     
@@ -187,6 +240,61 @@ final class ViewModelTests: XCTestCase {
         tabVM.closeOtherTabs(id: ordersId)
         XCTAssertEqual(tabVM.tabs.count, 1)
         XCTAssertEqual(tabVM.activeTab?.title, "orders")
+    }
+
+    func testWorkspaceTabQueryIsolation() {
+        let postgres = PostgresService()
+        let tabVM = WorkspaceTabViewModel(postgresService: postgres)
+
+        // Initial default tab: Query #1
+        XCTAssertEqual(tabVM.tabs.count, 1)
+        let tab1Id = tabVM.tabs[0].id
+        let vm1 = tabVM.queryViewModel(for: tab1Id)
+        vm1.queryText = "SELECT * FROM tab_one;"
+
+        // Open Query #2
+        tabVM.openQueryTab()
+        XCTAssertEqual(tabVM.tabs.count, 2)
+        let tab2Id = tabVM.tabs[1].id
+        let vm2 = tabVM.queryViewModel(for: tab2Id)
+
+        // Verify independent state
+        XCTAssertNotEqual(tab1Id, tab2Id)
+        XCTAssertTrue(vm1 !== vm2, "Each query tab must have an independent QueryViewModel instance")
+        XCTAssertEqual(vm2.queryText, "", "Query #2 buffer must start empty and isolated")
+
+        vm2.queryText = "SELECT * FROM tab_two;"
+        XCTAssertEqual(vm1.queryText, "SELECT * FROM tab_one;")
+        XCTAssertEqual(vm2.queryText, "SELECT * FROM tab_two;")
+
+        // Close Tab 2 and verify cleanup
+        tabVM.closeTab(id: tab2Id)
+        XCTAssertEqual(tabVM.tabs.count, 1)
+    }
+
+    func testConcurrentQueryExecutionGuard() async {
+        let postgres = PostgresService()
+        let vm = QueryViewModel(postgresService: postgres)
+
+        vm.queryText = "SELECT 1;"
+        vm.isExecuting = true
+
+        // Calling executeQuery while already executing should guard-exit immediately
+        await vm.executeQuery()
+        XCTAssertTrue(vm.isExecuting)
+        XCTAssertNil(vm.result, "Should not overwrite results when locked out by isExecuting")
+    }
+
+    func testQuotedIdentifierAndLiteralEscaping() {
+        let simpleName = "users"
+        XCTAssertEqual(simpleName.pgQuotedIdentifier, "\"users\"")
+        XCTAssertEqual(simpleName.pgEscapedLiteral, "users")
+
+        let complexName = "my\"table"
+        XCTAssertEqual(complexName.pgQuotedIdentifier, "\"my\"\"table\"")
+
+        let stringLiteral = "it's dangerous; --"
+        XCTAssertEqual(stringLiteral.pgEscapedLiteral, "it''s dangerous; --")
     }
 }
 

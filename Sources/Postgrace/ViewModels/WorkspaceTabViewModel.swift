@@ -7,10 +7,28 @@ public class WorkspaceTabViewModel {
     public var tabs: [WorkspaceTab] = []
     public var activeTabId: UUID?
     private var queryCounter: Int = 1
+    private var queryViewModels: [UUID: QueryViewModel] = [:]
+    private var postgresService: PostgresService?
 
-    public init() {
+    public init(postgresService: PostgresService? = nil) {
+        self.postgresService = postgresService
         // Open a default Query #1 tab on startup
         openQueryTab()
+    }
+
+    /// Sets or updates the active PostgresService reference for spawning tab QueryViewModels.
+    public func setPostgresService(_ service: PostgresService) {
+        self.postgresService = service
+    }
+
+    /// Returns the dedicated, tab-isolated QueryViewModel for a given query tab ID.
+    public func queryViewModel(for id: UUID) -> QueryViewModel {
+        if let existing = queryViewModels[id] {
+            return existing
+        }
+        let vm = QueryViewModel(postgresService: postgresService ?? PostgresService())
+        queryViewModels[id] = vm
+        return vm
     }
 
     /// The currently active tab.
@@ -83,19 +101,22 @@ public class WorkspaceTabViewModel {
         activeTabId = tab.id
     }
 
-    /// Opens a new SQL Query tab.
+    /// Opens a new SQL Query tab with its own isolated QueryViewModel.
     public func openQueryTab() {
+        let id = UUID()
         let title = "Query #\(queryCounter)"
         queryCounter += 1
-        let tab = WorkspaceTab(title: title, type: .query(id: UUID(), title: title))
+        let tab = WorkspaceTab(id: id, title: title, type: .query(id: id, title: title))
         tabs.append(tab)
         activeTabId = tab.id
+        _ = queryViewModel(for: id)
     }
 
-    /// Closes the specified tab.
+    /// Closes the specified tab and releases any associated QueryViewModel.
     public func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs.remove(at: index)
+        queryViewModels.removeValue(forKey: id)
 
         if activeTabId == id {
             if !tabs.isEmpty {
@@ -107,9 +128,10 @@ public class WorkspaceTabViewModel {
         }
     }
 
-    /// Closes all tabs except the active one.
+    /// Closes all tabs except the active one and cleans up unused QueryViewModels.
     public func closeOtherTabs(id: UUID) {
         tabs.removeAll { $0.id != id }
+        queryViewModels = queryViewModels.filter { $0.key == id }
         activeTabId = id
     }
 }

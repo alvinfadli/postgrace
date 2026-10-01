@@ -12,6 +12,19 @@ public class ConnectionViewModel {
     public var connectionError: String?
     public var showingConnectionForm: Bool = false
     public var showingEditForm: Bool = false
+    public var connectionToEdit: SavedConnection?
+
+    /// Opens the sheet to create a new connection.
+    public func openNewConnectionForm() {
+        connectionToEdit = nil
+        showingConnectionForm = true
+    }
+
+    /// Opens the sheet to edit an existing connection.
+    public func openEditConnectionForm(for connection: SavedConnection) {
+        connectionToEdit = connection
+        showingEditForm = true
+    }
 
     private let postgresService: PostgresService
     private let keychainService: KeychainService
@@ -104,11 +117,16 @@ public class ConnectionViewModel {
     public func saveConnection(_ connection: SavedConnection, password: String) {
         if let index = savedConnections.firstIndex(where: { $0.id == connection.id }) {
             savedConnections[index] = connection
+            if selectedConnection?.id == connection.id {
+                selectedConnection = connection
+            }
         } else {
             savedConnections.append(connection)
         }
 
-        try? keychainService.savePassword(password, for: connection.id)
+        if !password.isEmpty || getStoredPassword(for: connection.id) == nil {
+            try? keychainService.savePassword(password, for: connection.id)
+        }
         persistConnections()
     }
 

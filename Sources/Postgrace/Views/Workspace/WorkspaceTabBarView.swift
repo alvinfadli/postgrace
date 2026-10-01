@@ -4,14 +4,19 @@ import SwiftUI
 /// Features top accent line on active tab, dark canvas background, and smooth hover states.
 struct WorkspaceTabBarView: View {
     @Environment(WorkspaceTabViewModel.self) private var tabViewModel
-    @State private var hoveredTabId: UUID? = nil
 
     var body: some View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
                     ForEach(tabViewModel.tabs) { tab in
-                        tabItemView(tab)
+                        WorkspaceTabItemView(
+                            tab: tab,
+                            isActive: tabViewModel.activeTabId == tab.id,
+                            onSelect: { tabViewModel.activeTabId = tab.id },
+                            onClose: { tabViewModel.closeTab(id: tab.id) },
+                            onCloseOthers: { tabViewModel.closeOtherTabs(id: tab.id) }
+                        )
                     }
 
                     // New query tab (+) action
@@ -44,17 +49,23 @@ struct WorkspaceTabBarView: View {
             alignment: .bottom
         )
     }
+}
 
-    // MARK: - Tab Item
+// MARK: - Decoupled Tab Item View (Localized Hover State)
 
-    @ViewBuilder
-    private func tabItemView(_ tab: WorkspaceTab) -> some View {
-        let isActive = tabViewModel.activeTabId == tab.id
-        let isHovered = hoveredTabId == tab.id
+struct WorkspaceTabItemView: View {
+    let tab: WorkspaceTab
+    let isActive: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    let onCloseOthers: () -> Void
 
+    @State private var isHovered = false
+
+    var body: some View {
         HStack(spacing: 0) {
             Button {
-                tabViewModel.activeTabId = tab.id
+                onSelect()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: iconForTab(tab.type))
@@ -75,7 +86,7 @@ struct WorkspaceTabBarView: View {
 
             // Close button (xmark)
             Button {
-                tabViewModel.closeTab(id: tab.id)
+                onClose()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
@@ -91,21 +102,21 @@ struct WorkspaceTabBarView: View {
         .background(isActive ? PostgraceTheme.canvas : (isHovered ? PostgraceTheme.surfaceElevated : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .overlay(
-            // Top Accent Line on Active Tab (matching artifact border-t-2 border-t-sky-500)
+            // Top Accent Line on Active Tab
             Rectangle()
                 .fill(isActive ? PostgraceTheme.accentSky : Color.clear)
                 .frame(height: 2),
             alignment: .top
         )
         .onHover { hovering in
-            hoveredTabId = hovering ? tab.id : nil
+            isHovered = hovering
         }
         .contextMenu {
             Button("Close Tab") {
-                tabViewModel.closeTab(id: tab.id)
+                onClose()
             }
             Button("Close Other Tabs") {
-                tabViewModel.closeOtherTabs(id: tab.id)
+                onCloseOthers()
             }
         }
     }
@@ -114,9 +125,9 @@ struct WorkspaceTabBarView: View {
         switch type {
         case .table: return "tablecells"
         case .query: return "terminal"
-        case .structure: return "list.bullet.rectangle"
+        case .structure: return "wrench.and.screwdriver"
         case .schemas: return "square.3.layers.3d"
-        case .tables: return "tablecells"
+        case .tables: return "list.bullet.rectangle"
         }
     }
 }

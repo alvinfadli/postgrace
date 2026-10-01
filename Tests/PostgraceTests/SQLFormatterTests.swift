@@ -28,4 +28,24 @@ final class SQLFormatterTests: XCTestCase {
         XCTAssertTrue(output.contains("ON"))
         XCTAssertTrue(output.contains("GROUP BY"))
     }
+
+    func testPreservesCommentsAndDollarQuotes() {
+        let input = """
+        -- Fetch all active users
+        SELECT id, name FROM users WHERE active = true;
+        /* Custom PL/pgSQL routine */
+        CREATE FUNCTION test_fn() RETURNS void AS $$
+        BEGIN
+            -- inner comment
+            SELECT 1;
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+        let output = SQLFormatter.format(input)
+
+        XCTAssertTrue(output.contains("-- Fetch all active users"))
+        XCTAssertTrue(output.contains("/* Custom PL/pgSQL routine */"))
+        XCTAssertTrue(output.contains("$$"))
+        XCTAssertTrue(output.contains("-- inner comment"))
+    }
 }

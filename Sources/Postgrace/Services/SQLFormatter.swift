@@ -49,6 +49,76 @@ public enum SQLFormatter {
                     }
                 }
             } else {
+                // Line comment --
+                if c == "-" && i + 1 < chars.count && chars[i + 1] == "-" {
+                    if !currentToken.isEmpty {
+                        tokens.append(currentToken)
+                        currentToken = ""
+                    }
+                    var comment = "--"
+                    i += 2
+                    while i < chars.count && chars[i] != "\n" {
+                        comment.append(chars[i])
+                        i += 1
+                    }
+                    tokens.append(comment)
+                    continue
+                }
+
+                // Block comment /* ... */
+                if c == "/" && i + 1 < chars.count && chars[i + 1] == "*" {
+                    if !currentToken.isEmpty {
+                        tokens.append(currentToken)
+                        currentToken = ""
+                    }
+                    var comment = "/*"
+                    i += 2
+                    while i < chars.count {
+                        if chars[i] == "*" && i + 1 < chars.count && chars[i + 1] == "/" {
+                            comment.append("*/")
+                            i += 2
+                            break
+                        } else {
+                            comment.append(chars[i])
+                            i += 1
+                        }
+                    }
+                    tokens.append(comment)
+                    continue
+                }
+
+                // Dollar-quoted string $$ ... $$ or $tag$ ... $tag$
+                if c == "$" {
+                    var tagEnd = i + 1
+                    while tagEnd < chars.count && chars[tagEnd] != "$" && (chars[tagEnd].isLetter || chars[tagEnd].isNumber || chars[tagEnd] == "_") {
+                        tagEnd += 1
+                    }
+                    if tagEnd < chars.count && chars[tagEnd] == "$" {
+                        let tag = String(chars[i...tagEnd])
+                        if !currentToken.isEmpty {
+                            tokens.append(currentToken)
+                            currentToken = ""
+                        }
+                        var block = tag
+                        i = tagEnd + 1
+                        let tagChars = Array(tag)
+                        while i < chars.count {
+                            if chars[i] == "$" && i + tagChars.count <= chars.count {
+                                let potentialClose = String(chars[i..<(i + tagChars.count)])
+                                if potentialClose == tag {
+                                    block.append(tag)
+                                    i += tagChars.count
+                                    break
+                                }
+                            }
+                            block.append(chars[i])
+                            i += 1
+                        }
+                        tokens.append(block)
+                        continue
+                    }
+                }
+
                 if c == "'" || c == "\"" {
                     if !currentToken.isEmpty {
                         tokens.append(currentToken)
@@ -79,12 +149,12 @@ public enum SQLFormatter {
             tokens.append(currentToken)
         }
 
-        // Step 2: Uppercase recognizable keywords (outside strings)
+        // Step 2: Uppercase recognizable keywords (outside strings, comments, and dollar-quotes)
         let uppercaseKeywords = Set((majorKeywords + inlineKeywords).flatMap { $0.components(separatedBy: " ") })
         var normalizedTokens: [String] = []
 
         for token in tokens {
-            if token.hasPrefix("'") || token.hasPrefix("\"") {
+            if token.hasPrefix("'") || token.hasPrefix("\"") || token.hasPrefix("--") || token.hasPrefix("/*") || token.hasPrefix("$") {
                 normalizedTokens.append(token)
             } else if uppercaseKeywords.contains(token.uppercased()) {
                 normalizedTokens.append(token.uppercased())

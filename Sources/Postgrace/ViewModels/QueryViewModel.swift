@@ -33,6 +33,7 @@ public class QueryViewModel {
     }
     
     public func executeQuery() async {
+        guard !isExecuting else { return }
         guard !queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         
         isExecuting = true

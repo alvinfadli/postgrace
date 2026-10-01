@@ -17,11 +17,7 @@ struct WindowAccessor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            if let window = nsView.window {
-                configure(window)
-            }
-        }
+        // Window configuration is one-time upon attachment; do not re-run during layout cycles.
     }
 }
 

@@ -2,28 +2,28 @@ import SwiftUI
 
 /// SQL query editor with results display and history sidebar.
 struct QueryEditorView: View {
-    @Environment(QueryViewModel.self) private var queryViewModel
+    @Bindable var queryViewModel: QueryViewModel
     @State private var showHistory = false
     @State private var executionStartTime: Date? = nil
 
     @FocusState private var isEditorFocused: Bool
 
     var body: some View {
-        @Bindable var vm = queryViewModel
-
         HSplitView {
             // Main editor + results
             VSplitView {
-                editorPane(queryText: $vm.queryText)
+                editorPane(queryText: $queryViewModel.queryText)
                 resultsPane
             }
 
             // Query history panel (toggleable)
             if showHistory {
                 QueryHistoryView()
+                    .environment(queryViewModel)
                     .frame(minWidth: 220, idealWidth: 260, maxWidth: 350)
             }
         }
+        .environment(queryViewModel)
     }
 
     // MARK: - Editor Pane

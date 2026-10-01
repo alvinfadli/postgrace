@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Defines the SSL mode for a PostgreSQL connection.
 public enum SSLMode: String, Codable, CaseIterable, Hashable {
@@ -14,6 +15,17 @@ public enum ConnectionColor: String, Codable, CaseIterable, Hashable {
     case orange
     case purple
     case none
+
+    public var color: Color {
+        switch self {
+        case .red: return PostgraceTheme.destructiveRed
+        case .blue: return PostgraceTheme.accentSky
+        case .green: return PostgraceTheme.emeraldRw
+        case .orange: return PostgraceTheme.amberRo
+        case .purple: return PostgraceTheme.purpleSuper
+        case .none: return PostgraceTheme.emeraldRw
+        }
+    }
 }
 
 /// A saved PostgreSQL connection configuration.

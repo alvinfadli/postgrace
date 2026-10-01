@@ -7,16 +7,17 @@ struct DataGridView: View {
     let queryResult: QueryResult
 
     @State private var columnWidths: [String: CGFloat] = [:]
-    @State private var hoveredRowIndex: Int? = nil
     @State private var sortColumn: String? = nil
     @State private var sortAscending: Bool = true
+    @State private var sortedRows: [[CellValue]] = []
 
-    private var displayedRows: [[CellValue]] {
+    private func updateSortedRows() {
         guard let sortCol = sortColumn,
               let colIndex = queryResult.columns.firstIndex(where: { $0.name == sortCol }) else {
-            return queryResult.rows
+            sortedRows = queryResult.rows
+            return
         }
-        return queryResult.rows.sorted { row1, row2 in
+        sortedRows = queryResult.rows.sorted { row1, row2 in
             let val1 = colIndex < row1.count ? row1[colIndex] : .null
             let val2 = colIndex < row2.count ? row2[colIndex] : .null
             let isLess = compareCells(val1, val2)
@@ -76,8 +77,19 @@ struct DataGridView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                         Section {
-                            ForEach(Array(displayedRows.enumerated()), id: \.offset) { rowIndex, row in
-                                dataRow(rowIndex: rowIndex, row: row, availableWidth: proxy.size.width)
+                            ForEach(0..<sortedRows.count, id: \.self) { rowIndex in
+                                DataGridRowView(
+                                    rowIndex: rowIndex,
+                                    row: sortedRows[rowIndex],
+                                    columns: queryResult.columns,
+                                    columnWidths: columnWidths,
+                                    defaultWidthForColumn: { defaultWidth(for: $0) },
+                                    availableWidth: proxy.size.width,
+                                    onCopyCell: { copyToPasteboard($0) },
+                                    onCopyColumn: { copyToPasteboard($0) },
+                                    onCopyRowCSV: { copyRowAsCSV($0) },
+                                    onCopyRowJSON: { copyRowAsJSON($0) }
+                                )
                             }
                         } header: {
                             headerRow(availableWidth: proxy.size.width)
@@ -90,6 +102,18 @@ struct DataGridView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .background(PostgraceTheme.canvas)
+        }
+        .onAppear {
+            updateSortedRows()
+        }
+        .onChange(of: sortColumn) { _, _ in
+            updateSortedRows()
+        }
+        .onChange(of: sortAscending) { _, _ in
+            updateSortedRows()
+        }
+        .onChange(of: queryResult.rows.count) { _, _ in
+            updateSortedRows()
         }
     }
 
@@ -193,112 +217,11 @@ struct DataGridView: View {
         .frame(width: width, alignment: .leading)
     }
 
-    // MARK: - Data Row
-
-    @ViewBuilder
-    private func dataRow(rowIndex: Int, row: [CellValue], availableWidth: CGFloat) -> some View {
-        let isHovered = hoveredRowIndex == rowIndex
-        let zebraBg = rowIndex % 2 == 0 ? PostgraceTheme.canvas : PostgraceTheme.surface.opacity(0.35)
-
-        HStack(spacing: 0) {
-            // Row number gutter
-            Text("\(rowIndex + 1)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.secondary.opacity(0.8))
-                .frame(width: 44, alignment: .trailing)
-                .padding(.trailing, 8)
-                .padding(.vertical, 5)
-                .background(PostgraceTheme.surface.opacity(0.2))
-                .overlay(
-                    Rectangle()
-                        .frame(width: PostgraceTheme.hairlineBorder)
-                        .foregroundColor(PostgraceTheme.borderSubtle),
-                    alignment: .trailing
-                )
-
-            // Cell values
-            ForEach(Array(row.enumerated()), id: \.offset) { colIndex, cellValue in
-                let width = queryResult.columns.indices.contains(colIndex)
-                    ? widthForColumn(at: colIndex, column: queryResult.columns[colIndex])
-                    : 120
-
-                let column = queryResult.columns.indices.contains(colIndex) ? queryResult.columns[colIndex] : ResultColumn(name: "col", dataTypeOID: 0, dataTypeName: "")
-
-                cellView(for: cellValue, column: column, row: row)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .frame(width: width, alignment: .leading)
-                    .overlay(
-                        Rectangle()
-                            .frame(width: PostgraceTheme.hairlineBorder)
-                            .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.4)),
-                        alignment: .trailing
-                    )
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(minWidth: availableWidth, alignment: .leading)
-        .background(isHovered ? PostgraceTheme.surfaceHover : zebraBg)
-        .overlay(
-            Rectangle()
-                .frame(height: PostgraceTheme.hairlineBorder)
-                .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.3)),
-            alignment: .bottom
-        )
-        .onHover { hovering in
-            hoveredRowIndex = hovering ? rowIndex : nil
-        }
-    }
-
-    // MARK: - Cell View with Context Menu
-
-    @ViewBuilder
-    private func cellView(for cellValue: CellValue, column: ResultColumn, row: [CellValue]) -> some View {
-        cellContent(for: cellValue)
-            .contextMenu {
-                Button("Copy Cell Value") {
-                    copyToPasteboard(cellValue.displayString)
-                }
-                Button("Copy Column Name (\(column.name))") {
-                    copyToPasteboard(column.name)
-                }
-                Divider()
-                Button("Copy Row as CSV") {
-                    copyRowAsCSV(row)
-                }
-                Button("Copy Row as JSON") {
-                    copyRowAsJSON(row)
-                }
-            }
-    }
-
-    @ViewBuilder
-    private func cellContent(for cellValue: CellValue) -> some View {
-        switch cellValue {
-        case .null:
-            Text("NULL")
-                .font(.system(size: 11, design: .monospaced))
-                .italic()
-                .foregroundColor(.secondary.opacity(0.6))
-        case .bool(let b):
-            Text(b ? "true" : "false")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(b ? PostgraceTheme.emeraldRw : PostgraceTheme.destructiveRed)
-        default:
-            Text(cellValue.displayString)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .textSelection(.enabled)
-        }
-    }
-
     // MARK: - Footer with Export Actions
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Text("\(displayedRows.count) rows")
+            Text("\(sortedRows.count) rows")
                 .font(.system(size: 11, design: .monospaced))
             Text("•")
                 .foregroundColor(PostgraceTheme.border)
@@ -394,7 +317,7 @@ struct DataGridView: View {
 
     private func copyAsJSON() {
         var rowsArray: [[String: Any]] = []
-        for row in displayedRows {
+        for row in sortedRows {
             var dict: [String: Any] = [:]
             for (i, col) in queryResult.columns.enumerated() {
                 if i < row.count {
@@ -419,7 +342,7 @@ struct DataGridView: View {
     private func generateCSVString() -> String {
         var lines: [String] = []
         lines.append(queryResult.columns.map { formatCSVCell($0.name) }.joined(separator: ","))
-        for row in displayedRows {
+        for row in sortedRows {
             lines.append(row.map { formatCSVCell($0.displayString) }.joined(separator: ","))
         }
         return lines.joined(separator: "\n")
@@ -461,6 +384,124 @@ struct DataGridView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PostgraceTheme.canvas)
+    }
+}
+
+// MARK: - Dedicated High-Performance Data Grid Row View
+
+struct DataGridRowView: View {
+    let rowIndex: Int
+    let row: [CellValue]
+    let columns: [ResultColumn]
+    let columnWidths: [String: CGFloat]
+    let defaultWidthForColumn: (ResultColumn) -> CGFloat
+    let availableWidth: CGFloat
+    let onCopyCell: (String) -> Void
+    let onCopyColumn: (String) -> Void
+    let onCopyRowCSV: ([CellValue]) -> Void
+    let onCopyRowJSON: ([CellValue]) -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        let zebraBg = rowIndex % 2 == 0 ? PostgraceTheme.canvas : PostgraceTheme.surface.opacity(0.35)
+
+        HStack(spacing: 0) {
+            // Row number gutter
+            Text("\(rowIndex + 1)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.8))
+                .frame(width: 44, alignment: .trailing)
+                .padding(.trailing, 8)
+                .padding(.vertical, 5)
+                .background(PostgraceTheme.surface.opacity(0.2))
+                .overlay(
+                    Rectangle()
+                        .frame(width: PostgraceTheme.hairlineBorder)
+                        .foregroundColor(PostgraceTheme.borderSubtle),
+                    alignment: .trailing
+                )
+
+            // Cell values
+            ForEach(0..<row.count, id: \.self) { colIndex in
+                let cellValue = row[colIndex]
+                let column = columns.indices.contains(colIndex) ? columns[colIndex] : ResultColumn(name: "col", dataTypeOID: 0, dataTypeName: "")
+                let width = columnWidths[column.name] ?? defaultWidthForColumn(column)
+
+                cellView(for: cellValue, column: column)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(width: width, alignment: .leading)
+                    .overlay(
+                        Rectangle()
+                            .frame(width: PostgraceTheme.hairlineBorder)
+                            .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.4)),
+                        alignment: .trailing
+                    )
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(minWidth: availableWidth, alignment: .leading)
+        .background(isHovered ? PostgraceTheme.surfaceHover : zebraBg)
+        .overlay(
+            Rectangle()
+                .frame(height: PostgraceTheme.hairlineBorder)
+                .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.3)),
+            alignment: .bottom
+        )
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .contextMenu {
+            Button("Copy Row as CSV") {
+                onCopyRowCSV(row)
+            }
+            Button("Copy Row as JSON") {
+                onCopyRowJSON(row)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cellView(for cellValue: CellValue, column: ResultColumn) -> some View {
+        cellContent(for: cellValue)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Copy Cell Value") {
+                    onCopyCell(cellValue.displayString)
+                }
+                Button("Copy Column Name (\(column.name))") {
+                    onCopyColumn(column.name)
+                }
+                Divider()
+                Button("Copy Row as CSV") {
+                    onCopyRowCSV(row)
+                }
+                Button("Copy Row as JSON") {
+                    onCopyRowJSON(row)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func cellContent(for cellValue: CellValue) -> some View {
+        switch cellValue {
+        case .null:
+            Text("NULL")
+                .font(.system(size: 11, design: .monospaced))
+                .italic()
+                .foregroundColor(.secondary.opacity(0.6))
+        case .bool(let b):
+            Text(b ? "true" : "false")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(b ? PostgraceTheme.emeraldRw : PostgraceTheme.destructiveRed)
+        default:
+            Text(cellValue.displayString)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+        }
     }
 }
 
@@ -569,4 +610,3 @@ final class ColumnResizeHandleNSView: NSView {
         lineRect.fill()
     }
 }
-

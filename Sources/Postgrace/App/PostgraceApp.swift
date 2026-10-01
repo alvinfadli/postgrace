@@ -63,7 +63,7 @@ struct PostgraceApp: App {
         _schemaViewModel = State(initialValue: SchemaViewModel(schemaService: schema))
         _queryViewModel = State(initialValue: QueryViewModel(postgresService: postgres))
         _dataGridViewModel = State(initialValue: DataGridViewModel(postgresService: postgres))
-        _tabViewModel = State(initialValue: WorkspaceTabViewModel())
+        _tabViewModel = State(initialValue: WorkspaceTabViewModel(postgresService: postgres))
     }
 
     var body: some Scene {
@@ -90,10 +90,18 @@ struct PostgraceApp: App {
             }
 
             CommandGroup(replacing: .newItem) {
-                Button("New Connection") {
-                    connectionViewModel.showingConnectionForm = true
+                Button("New Connection...") {
+                    connectionViewModel.openNewConnectionForm()
                 }
                 .keyboardShortcut("n", modifiers: .command)
+
+                Button("Edit Current Connection...") {
+                    if let conn = connectionViewModel.selectedConnection {
+                        connectionViewModel.openEditConnectionForm(for: conn)
+                    }
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(!connectionViewModel.isConnected)
 
                 Button("New Query Tab") {
                     tabViewModel.openQueryTab()

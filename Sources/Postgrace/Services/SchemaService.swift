@@ -60,7 +60,7 @@ public actor SchemaService {
                    END AS table_type
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = '\(schema)'
+            WHERE n.nspname = '\(schema.pgEscapedLiteral)'
               AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
             ORDER BY c.relname ASC;
         """
@@ -110,7 +110,7 @@ public actor SchemaService {
                    ON tc.table_schema = c.table_schema AND tc.table_name = c.table_name AND tc.constraint_type = 'PRIMARY KEY'
             LEFT JOIN information_schema.key_column_usage kcu 
                    ON kcu.constraint_name = tc.constraint_name AND kcu.column_name = c.column_name
-            WHERE c.table_schema = '\(schema)' AND c.table_name = '\(table)'
+            WHERE c.table_schema = '\(schema.pgEscapedLiteral)' AND c.table_name = '\(table.pgEscapedLiteral)'
             ORDER BY c.ordinal_position;
         """
         let result = try await postgresService.executeQuery(query)
@@ -139,7 +139,7 @@ public actor SchemaService {
         let query = """
             SELECT indexname, indexdef
             FROM pg_indexes
-            WHERE schemaname = '\(schema)' AND tablename = '\(table)';
+            WHERE schemaname = '\(schema.pgEscapedLiteral)' AND tablename = '\(table.pgEscapedLiteral)';
         """
         let result = try await postgresService.executeQuery(query)
         
@@ -164,7 +164,7 @@ public actor SchemaService {
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
             JOIN pg_language l ON l.oid = p.prolang
-            WHERE n.nspname = '\(schema)';
+            WHERE n.nspname = '\(schema.pgEscapedLiteral)';
         """
         let result = try await postgresService.executeQuery(query)
         
@@ -328,7 +328,7 @@ public actor SchemaService {
                    has_table_privilege(current_user, c.oid, 'INSERT') AS can_insert
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = '\(schema)'
+            WHERE n.nspname = '\(schema.pgEscapedLiteral)'
               AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
             ORDER BY c.relname ASC;
         """
@@ -400,23 +400,23 @@ public actor SchemaService {
 
     /// Creates a new schema.
     public func createSchema(name: String, authorization: String? = nil) async throws {
-        var sql = "CREATE SCHEMA \"\(name)\""
+        var sql = "CREATE SCHEMA \(name.pgQuotedIdentifier)"
         if let auth = authorization, !auth.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            sql += " AUTHORIZATION \"\(auth)\""
+            sql += " AUTHORIZATION \(auth.pgQuotedIdentifier)"
         }
         _ = try await postgresService.executeQuery(sql)
     }
 
     /// Renames an existing schema.
     public func renameSchema(from oldName: String, to newName: String) async throws {
-        let sql = "ALTER SCHEMA \"\(oldName)\" RENAME TO \"\(newName)\";"
+        let sql = "ALTER SCHEMA \(oldName.pgQuotedIdentifier) RENAME TO \(newName.pgQuotedIdentifier);"
         _ = try await postgresService.executeQuery(sql)
     }
 
     /// Drops a schema with optional CASCADE.
     public func dropSchema(name: String, cascade: Bool = false) async throws {
         let mode = cascade ? "CASCADE" : "RESTRICT"
-        let sql = "DROP SCHEMA \"\(name)\" \(mode);"
+        let sql = "DROP SCHEMA \(name.pgQuotedIdentifier) \(mode);"
         _ = try await postgresService.executeQuery(sql)
     }
 
@@ -430,7 +430,7 @@ public actor SchemaService {
 
         var colDefs: [String] = []
         for col in columns {
-            var def = "\"\(col.name)\" \(col.dataType)"
+            var def = "\(col.name.pgQuotedIdentifier) \(col.dataType)"
             if col.isPrimaryKey {
                 def += " PRIMARY KEY"
             }
@@ -444,19 +444,19 @@ public actor SchemaService {
             colDefs.append(def)
         }
 
-        let sql = "CREATE TABLE \"\(schema)\".\"\(name)\" (\n  " + colDefs.joined(separator: ",\n  ") + "\n);"
+        let sql = "CREATE TABLE \(schema.pgQuotedIdentifier).\(name.pgQuotedIdentifier) (\n  " + colDefs.joined(separator: ",\n  ") + "\n);"
         _ = try await postgresService.executeQuery(sql)
     }
 
     /// Renames a table.
     public func renameTable(schema: String, from oldName: String, to newName: String) async throws {
-        let sql = "ALTER TABLE \"\(schema)\".\"\(oldName)\" RENAME TO \"\(newName)\";"
+        let sql = "ALTER TABLE \(schema.pgQuotedIdentifier).\(oldName.pgQuotedIdentifier) RENAME TO \(newName.pgQuotedIdentifier);"
         _ = try await postgresService.executeQuery(sql)
     }
 
     /// Truncates a table.
     public func truncateTable(schema: String, name: String, restartIdentity: Bool = true, cascade: Bool = false) async throws {
-        var sql = "TRUNCATE TABLE \"\(schema)\".\"\(name)\""
+        var sql = "TRUNCATE TABLE \(schema.pgQuotedIdentifier).\(name.pgQuotedIdentifier)"
         if restartIdentity { sql += " RESTART IDENTITY" }
         if cascade { sql += " CASCADE" } else { sql += " RESTRICT" }
         _ = try await postgresService.executeQuery(sql)
@@ -465,7 +465,7 @@ public actor SchemaService {
     /// Drops a table with optional CASCADE.
     public func dropTable(schema: String, name: String, cascade: Bool = false) async throws {
         let mode = cascade ? "CASCADE" : "RESTRICT"
-        let sql = "DROP TABLE \"\(schema)\".\"\(name)\" \(mode);"
+        let sql = "DROP TABLE \(schema.pgQuotedIdentifier).\(name.pgQuotedIdentifier) \(mode);"
         _ = try await postgresService.executeQuery(sql)
     }
 }

@@ -61,7 +61,7 @@ struct ContentView: View {
             ConnectionFormView(connection: nil)
         }
         .sheet(isPresented: $connVM.showingEditForm) {
-            ConnectionFormView(connection: connectionViewModel.selectedConnection)
+            ConnectionFormView(connection: connectionViewModel.connectionToEdit)
         }
     }
 }

@@ -3,18 +3,17 @@ import SwiftUI
 /// Displays table structure: columns, types, constraints, and defaults in a pixel-accurate grid.
 struct TableStructureView: View {
     @Environment(SchemaViewModel.self) private var schemaViewModel
-    @State private var hoveredRowIndex: Int? = nil
 
     let schema: SchemaInfo
     let table: TableInfo
 
     // Exact column widths for alignment
-    private let colWidthPK: CGFloat = 44
-    private let colWidthName: CGFloat = 200
-    private let colWidthType: CGFloat = 150
-    private let colWidthSize: CGFloat = 90
-    private let colWidthNullable: CGFloat = 100
-    private let colWidthDefault: CGFloat = 260
+    static let colWidthPK: CGFloat = 44
+    static let colWidthName: CGFloat = 200
+    static let colWidthType: CGFloat = 150
+    static let colWidthSize: CGFloat = 90
+    static let colWidthNullable: CGFloat = 100
+    static let colWidthDefault: CGFloat = 260
 
     var body: some View {
         VStack(spacing: 0) {
@@ -118,9 +117,8 @@ struct TableStructureView: View {
                         LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                             Section {
                                 ForEach(columns, id: \.id) { col in
-                                    let isHovered = hoveredRowIndex == col.ordinalPosition
                                     let isEven = col.ordinalPosition % 2 == 0
-                                    columnRowView(col: col, isHovered: isHovered, isEven: isEven, availableWidth: proxy.size.width)
+                                    TableStructureRowView(col: col, isEven: isEven, availableWidth: proxy.size.width)
                                 }
                             } header: {
                                 structureHeaderRow(availableWidth: proxy.size.width)
@@ -179,14 +177,14 @@ struct TableStructureView: View {
             Text("#")
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundColor(.secondary)
-                .frame(width: colWidthPK, height: 32, alignment: .center)
+                .frame(width: Self.colWidthPK, height: 32, alignment: .center)
                 .overlay(cellRightDivider, alignment: .trailing)
 
             // Column Name
             Text("COLUMN NAME")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundColor(.secondary)
-                .frame(width: colWidthName, height: 32, alignment: .leading)
+                .frame(width: Self.colWidthName, height: 32, alignment: .leading)
                 .padding(.horizontal, 10)
                 .overlay(cellRightDivider, alignment: .trailing)
 
@@ -194,7 +192,7 @@ struct TableStructureView: View {
             Text("DATA TYPE")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundColor(.secondary)
-                .frame(width: colWidthType, height: 32, alignment: .leading)
+                .frame(width: Self.colWidthType, height: 32, alignment: .leading)
                 .padding(.horizontal, 10)
                 .overlay(cellRightDivider, alignment: .trailing)
 
@@ -202,7 +200,7 @@ struct TableStructureView: View {
             Text("NULLABLE")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundColor(.secondary)
-                .frame(width: colWidthNullable, height: 32, alignment: .leading)
+                .frame(width: Self.colWidthNullable, height: 32, alignment: .leading)
                 .padding(.horizontal, 10)
                 .overlay(cellRightDivider, alignment: .trailing)
 
@@ -210,7 +208,7 @@ struct TableStructureView: View {
             Text("DEFAULT VALUE")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundColor(.secondary)
-                .frame(width: colWidthDefault, height: 32, alignment: .leading)
+                .frame(width: Self.colWidthDefault, height: 32, alignment: .leading)
                 .padding(.horizontal, 10)
                 .overlay(cellRightDivider, alignment: .trailing)
 
@@ -218,7 +216,7 @@ struct TableStructureView: View {
             Text("MAX LENGTH")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundColor(.secondary)
-                .frame(width: colWidthSize, height: 32, alignment: .leading)
+                .frame(width: Self.colWidthSize, height: 32, alignment: .leading)
                 .padding(.horizontal, 10)
 
             Spacer(minLength: 0)
@@ -234,8 +232,23 @@ struct TableStructureView: View {
         )
     }
 
-    @ViewBuilder
-    private func columnRowView(col: ColumnInfo, isHovered: Bool, isEven: Bool, availableWidth: CGFloat) -> some View {
+    private var cellRightDivider: some View {
+        Rectangle()
+            .fill(PostgraceTheme.border.opacity(0.6))
+            .frame(width: PostgraceTheme.hairlineBorder)
+    }
+}
+
+// MARK: - Decoupled Table Structure Row View (Localized Hover State)
+
+struct TableStructureRowView: View {
+    let col: ColumnInfo
+    let isEven: Bool
+    let availableWidth: CGFloat
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
         let zebraBg = isEven ? PostgraceTheme.canvas : PostgraceTheme.surface.opacity(0.35)
         let rowBg = isHovered ? PostgraceTheme.surfaceHover : zebraBg
 
@@ -251,7 +264,7 @@ struct TableStructureView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(col.isPrimaryKey ? .yellow : .secondary)
             }
-            .frame(width: colWidthPK, height: 28, alignment: .center)
+            .frame(width: TableStructureView.colWidthPK, height: 28, alignment: .center)
             .overlay(cellRightDivider, alignment: .trailing)
 
             // Column Name
@@ -269,7 +282,7 @@ struct TableStructureView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
             }
-            .frame(width: colWidthName, height: 28, alignment: .leading)
+            .frame(width: TableStructureView.colWidthName, height: 28, alignment: .leading)
             .padding(.horizontal, 10)
             .overlay(cellRightDivider, alignment: .trailing)
 
@@ -277,7 +290,7 @@ struct TableStructureView: View {
             Text(col.dataType)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundColor(PostgraceTheme.accentSky)
-                .frame(width: colWidthType, height: 28, alignment: .leading)
+                .frame(width: TableStructureView.colWidthType, height: 28, alignment: .leading)
                 .padding(.horizontal, 10)
                 .overlay(cellRightDivider, alignment: .trailing)
 
@@ -301,7 +314,7 @@ struct TableStructureView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
             }
-            .frame(width: colWidthNullable, height: 28, alignment: .leading)
+            .frame(width: TableStructureView.colWidthNullable, height: 28, alignment: .leading)
             .padding(.horizontal, 10)
             .overlay(cellRightDivider, alignment: .trailing)
 
@@ -318,7 +331,7 @@ struct TableStructureView: View {
                         .foregroundColor(PostgraceTheme.border)
                 }
             }
-            .frame(width: colWidthDefault, height: 28, alignment: .leading)
+            .frame(width: TableStructureView.colWidthDefault, height: 28, alignment: .leading)
             .padding(.horizontal, 10)
             .overlay(cellRightDivider, alignment: .trailing)
 
@@ -334,7 +347,7 @@ struct TableStructureView: View {
                         .foregroundColor(PostgraceTheme.border)
                 }
             }
-            .frame(width: colWidthSize, height: 28, alignment: .leading)
+            .frame(width: TableStructureView.colWidthSize, height: 28, alignment: .leading)
             .padding(.horizontal, 10)
 
             Spacer(minLength: 0)
@@ -349,7 +362,7 @@ struct TableStructureView: View {
             alignment: .bottom
         )
         .onHover { hovering in
-            hoveredRowIndex = hovering ? col.ordinalPosition : nil
+            isHovered = hovering
         }
     }
 

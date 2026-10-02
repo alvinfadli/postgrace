@@ -128,6 +128,7 @@ struct WorkspaceTabItemView: View {
         case .structure: return "wrench.and.screwdriver"
         case .schemas: return "square.3.layers.3d"
         case .tables: return "list.bullet.rectangle"
+        case .databases: return "cylinder.split.1x2"
         }
     }
 }

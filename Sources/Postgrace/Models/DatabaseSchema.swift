@@ -5,10 +5,25 @@ public struct DatabaseInfo: Identifiable, Hashable {
     public var id: UInt32 { oid }
     public let name: String
     public let oid: UInt32
+    public let owner: String
+    public let encoding: String
+    public let size: String
+    public let isOwner: Bool
     
-    public init(name: String, oid: UInt32) {
+    public init(
+        name: String,
+        oid: UInt32,
+        owner: String = "postgres",
+        encoding: String = "UTF8",
+        size: String = "0 bytes",
+        isOwner: Bool = false
+    ) {
         self.name = name
         self.oid = oid
+        self.owner = owner
+        self.encoding = encoding
+        self.size = size
+        self.isOwner = isOwner
     }
 }
 

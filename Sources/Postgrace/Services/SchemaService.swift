@@ -8,18 +8,52 @@ public actor SchemaService {
         self.postgresService = postgresService
     }
     
-    /// Fetches all databases.
+    /// Fetches all databases with owners, encodings, sizes, and ownership status.
     public func fetchDatabases() async throws -> [DatabaseInfo] {
-        let query = "SELECT datname, oid FROM pg_database WHERE datistemplate = false;"
+        let query = """
+            SELECT d.datname,
+                   d.oid,
+                   pg_catalog.pg_get_userbyid(d.datdba) AS owner,
+                   pg_catalog.pg_encoding_to_char(d.encoding) AS encoding,
+                   pg_catalog.pg_size_pretty(pg_catalog.pg_database_size(d.oid)) AS size,
+                   (pg_has_role(current_user, d.datdba, 'MEMBER') OR (SELECT COALESCE(rolsuper, false) FROM pg_roles WHERE rolname = current_user)) AS is_owner
+            FROM pg_database d
+            WHERE d.datistemplate = false
+            ORDER BY d.datname ASC;
+        """
         let result = try await postgresService.executeQuery(query)
         
         var databases: [DatabaseInfo] = []
         for row in result.rows {
-            if row.count >= 2,
-               case .string(let name) = row[0],
-               case .int(let oid) = row[1] {
-                databases.append(DatabaseInfo(name: name, oid: UInt32(oid)))
-            }
+            guard row.count >= 2,
+                  case .string(let name) = row[0],
+                  case .int(let oid) = row[1] else { continue }
+            
+            let owner: String = {
+                if row.count >= 3, case .string(let o) = row[2] { return o }
+                return "postgres"
+            }()
+            let encoding: String = {
+                if row.count >= 4, case .string(let e) = row[3] { return e }
+                return "UTF8"
+            }()
+            let size: String = {
+                if row.count >= 5, case .string(let s) = row[4] { return s }
+                return "0 bytes"
+            }()
+            let isOwner: Bool = {
+                if row.count >= 6, case .bool(let b) = row[5] { return b }
+                return false
+            }()
+
+            databases.append(DatabaseInfo(
+                name: name,
+                oid: UInt32(oid),
+                owner: owner,
+                encoding: encoding,
+                size: size,
+                isOwner: isOwner
+            ))
         }
         return databases
     }
@@ -467,5 +501,60 @@ public actor SchemaService {
         let mode = cascade ? "CASCADE" : "RESTRICT"
         let sql = "DROP TABLE \(schema.pgQuotedIdentifier).\(name.pgQuotedIdentifier) \(mode);"
         _ = try await postgresService.executeQuery(sql)
+    }
+
+    // MARK: - Database Lifecycle (Create & Drop)
+
+    /// Creates a new PostgreSQL database with optional owner, encoding, template, and connection limit.
+    public func createDatabase(
+        name: String,
+        owner: String? = nil,
+        encoding: String? = nil,
+        template: String? = nil,
+        connectionLimit: Int? = nil
+    ) async throws {
+        var sql = "CREATE DATABASE \(name.pgQuotedIdentifier)"
+        var options: [String] = []
+
+        if let owner = owner?.trimmingCharacters(in: .whitespacesAndNewlines), !owner.isEmpty {
+            options.append("OWNER \(owner.pgQuotedIdentifier)")
+        }
+        if let encoding = encoding?.trimmingCharacters(in: .whitespacesAndNewlines), !encoding.isEmpty {
+            options.append("ENCODING '\(encoding.pgEscapedLiteral)'")
+        }
+        if let template = template?.trimmingCharacters(in: .whitespacesAndNewlines), !template.isEmpty {
+            options.append("TEMPLATE \(template.pgQuotedIdentifier)")
+        }
+        if let limit = connectionLimit, limit >= -1 {
+            options.append("CONNECTION LIMIT \(limit)")
+        }
+
+        if !options.isEmpty {
+            sql += " " + options.joined(separator: " ")
+        }
+        _ = try await postgresService.executeQuery(sql)
+    }
+
+    /// Drops a PostgreSQL database with optional FORCE mode (terminates active connections first).
+    public func dropDatabase(name: String, force: Bool = false) async throws {
+        if force {
+            // Terminate backends connected to the database to drop
+            _ = try? await postgresService.executeQuery("""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = '\(name.pgEscapedLiteral)'
+                  AND pid <> pg_backend_pid();
+            """)
+
+            // Attempt DROP DATABASE WITH (FORCE) in PostgreSQL 13+
+            do {
+                _ = try await postgresService.executeQuery("DROP DATABASE \(name.pgQuotedIdentifier) WITH (FORCE);")
+                return
+            } catch {
+                // Fallback to standard DROP DATABASE if WITH (FORCE) is not supported
+            }
+        }
+
+        _ = try await postgresService.executeQuery("DROP DATABASE \(name.pgQuotedIdentifier);")
     }
 }

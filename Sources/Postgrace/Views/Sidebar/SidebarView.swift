@@ -48,29 +48,54 @@ struct SidebarView: View {
             .padding(.top, 10)
             .padding(.bottom, 6)
 
-            // 2. QUICK ACCESS: SCHEMAS CATALOG BUTTON (⌘1)
-            Button {
-                tabViewModel.openSchemasTab()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.3.layers.3d")
-                        .foregroundColor(PostgraceTheme.accentSky)
-                        .font(.caption)
-                    Text("Schemas Catalog")
-                        .font(.caption.bold())
-                        .foregroundColor(.primary)
-                    Spacer()
+            // 2. QUICK ACCESS: DATABASES & SCHEMAS CATALOGS
+            HStack(spacing: 6) {
+                Button {
+                    tabViewModel.openDatabasesTab()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "cylinder.split.1x2")
+                            .foregroundColor(PostgraceTheme.accentSky)
+                            .font(.caption2)
+                        Text("Databases")
+                            .font(.caption.bold())
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(PostgraceTheme.surfaceElevated)
-                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
-                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-                )
+                .buttonStyle(.plain)
+
+                Button {
+                    tabViewModel.openSchemasTab()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "square.3.layers.3d")
+                            .foregroundColor(PostgraceTheme.accentSky)
+                            .font(.caption2)
+                        Text("Schemas")
+                            .font(.caption.bold())
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.horizontal, 10)
             .padding(.bottom, 8)
 

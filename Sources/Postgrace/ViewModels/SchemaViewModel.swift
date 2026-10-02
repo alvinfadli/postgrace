@@ -9,10 +9,12 @@ public class SchemaViewModel {
     public var columns: [String: [ColumnInfo]] = [:]
     public var schemaDetails: [SchemaDetail] = []
     public var tableDetails: [String: [TableDetail]] = [:]
+    public var databases: [DatabaseInfo] = []
     public var userPrivileges: UserPrivilegeInfo?
     public var selectedSchema: SchemaInfo?
     public var selectedTable: TableInfo?
     public var isLoading: Bool = false
+    public var isDatabaseActionInProgress: Bool = false
     public var crudError: String?
 
     private let schemaService: SchemaService
@@ -32,12 +34,32 @@ public class SchemaViewModel {
         }
     }
 
+    // MARK: - Database Eligibility & Roles
+
+    /// Whether the connected user has permission to create databases (Superuser or CREATEDB role).
+    public var canCreateDatabase: Bool {
+        guard let privs = userPrivileges else { return true }
+        return privs.isSuperuser || privs.canCreateDb
+    }
+
+    /// Checks whether the user can drop a specified database.
+    public func canDropDatabase(_ db: DatabaseInfo, currentDatabase: String?) -> (allowed: Bool, reason: String?) {
+        if let current = currentDatabase, db.name == current {
+            return (false, "Cannot drop active database '\(db.name)' while connected to it. Switch to another database (such as 'postgres') first.")
+        }
+        guard let privs = userPrivileges else { return (true, nil) }
+        if privs.isSuperuser || db.isOwner { return (true, nil) }
+        return (false, "Only the database owner ('\(db.owner)') or a superuser can drop this database.")
+    }
+
     // MARK: - Schema Browsing & Introspection
 
     /// Fetches all available databases on the connected server instance.
     public func loadAvailableDatabases() async -> [DatabaseInfo] {
         do {
-            return try await schemaService.fetchDatabases()
+            let dbs = try await schemaService.fetchDatabases()
+            self.databases = dbs
+            return dbs
         } catch {
             print("Error fetching databases: \(error)")
             return []
@@ -216,6 +238,62 @@ public class SchemaViewModel {
             await loadTables(for: schema)
             await loadTableDetails(for: schema)
             await loadSchemaDetails()
+        } catch {
+            crudError = error.localizedDescription
+            throw error
+        }
+    }
+
+    // MARK: - Database CRUD Lifecycle
+
+    /// Creates a new PostgreSQL database with role eligibility check.
+    public func createDatabase(
+        name: String,
+        owner: String? = nil,
+        encoding: String? = nil,
+        template: String? = nil,
+        connectionLimit: Int? = nil
+    ) async throws {
+        crudError = nil
+        guard canCreateDatabase else {
+            let msg = "User '\(userPrivileges?.username ?? "")' lacks CREATEDB or SUPERUSER privileges to create databases."
+            crudError = msg
+            throw PostgresServiceError.queryFailed(msg)
+        }
+
+        isDatabaseActionInProgress = true
+        defer { isDatabaseActionInProgress = false }
+
+        do {
+            try await schemaService.createDatabase(
+                name: name,
+                owner: owner,
+                encoding: encoding,
+                template: template,
+                connectionLimit: connectionLimit
+            )
+            _ = await loadAvailableDatabases()
+        } catch {
+            crudError = error.localizedDescription
+            throw error
+        }
+    }
+
+    /// Drops a database with permission check and active database protection.
+    public func dropDatabase(name: String, force: Bool = false, currentDatabase: String? = nil) async throws {
+        crudError = nil
+        if let current = currentDatabase, name == current {
+            let msg = "Cannot drop active database '\(name)' while connected to it. Switch to another database first."
+            crudError = msg
+            throw PostgresServiceError.queryFailed(msg)
+        }
+
+        isDatabaseActionInProgress = true
+        defer { isDatabaseActionInProgress = false }
+
+        do {
+            try await schemaService.dropDatabase(name: name, force: force)
+            _ = await loadAvailableDatabases()
         } catch {
             crudError = error.localizedDescription
             throw error

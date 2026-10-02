@@ -346,5 +346,70 @@ final class ViewModelTests: XCTestCase {
         vm.filterRules.removeAll()
         XCTAssertEqual(vm.buildFilterClause(), "")
     }
+
+    // MARK: - Database Role Eligibility & Drop Guard Tests
+
+    func testDatabaseRoleEligibility() {
+        let postgres = PostgresService()
+        let schemaService = SchemaService(postgresService: postgres)
+        let vm = SchemaViewModel(schemaService: schemaService)
+
+        // 1. Superuser privileges
+        vm.userPrivileges = UserPrivilegeInfo(username: "postgres", isSuperuser: true, canCreateDb: true)
+        XCTAssertTrue(vm.canCreateDatabase)
+
+        let targetDb = DatabaseInfo(name: "analytics", oid: 16384, owner: "app_user", encoding: "UTF8", size: "12 MB", isOwner: false)
+        let (superCanDrop, superReason) = vm.canDropDatabase(targetDb, currentDatabase: "postgres")
+        XCTAssertTrue(superCanDrop)
+        XCTAssertNil(superReason)
+
+        // 2. Active database protection (cannot drop connected db even as superuser)
+        let (activeDropAllowed, activeReason) = vm.canDropDatabase(targetDb, currentDatabase: "analytics")
+        XCTAssertFalse(activeDropAllowed)
+        XCTAssertNotNil(activeReason)
+        XCTAssertTrue(activeReason?.contains("Cannot drop active database") == true)
+
+        // 3. User with CREATEDB role but not superuser
+        vm.userPrivileges = UserPrivilegeInfo(username: "developer", isSuperuser: false, canCreateDb: true)
+        XCTAssertTrue(vm.canCreateDatabase)
+
+        // Drop db they DO own
+        let ownedDb = DatabaseInfo(name: "dev_sandbox", oid: 16385, owner: "developer", encoding: "UTF8", size: "4 MB", isOwner: true)
+        let (ownerCanDrop, ownerReason) = vm.canDropDatabase(ownedDb, currentDatabase: "postgres")
+        XCTAssertTrue(ownerCanDrop)
+        XCTAssertNil(ownerReason)
+
+        // Drop db they DO NOT own
+        let (nonOwnerCanDrop, nonOwnerReason) = vm.canDropDatabase(targetDb, currentDatabase: "postgres")
+        XCTAssertFalse(nonOwnerCanDrop)
+        XCTAssertNotNil(nonOwnerReason)
+        XCTAssertTrue(nonOwnerReason?.contains("Only the database owner") == true)
+
+        // 4. Read-only user without CREATEDB
+        vm.userPrivileges = UserPrivilegeInfo(username: "readonly_user", isSuperuser: false, canCreateDb: false)
+        XCTAssertFalse(vm.canCreateDatabase)
+    }
+
+    func testWorkspaceTabViewModelDatabasesTab() {
+        let vm = WorkspaceTabViewModel()
+        vm.openDatabasesTab()
+
+        guard let activeTab = vm.activeTab else {
+            XCTFail("Expected active tab")
+            return
+        }
+
+        XCTAssertEqual(activeTab.title, "Databases")
+        if case .databases = activeTab.type {
+            // Success
+        } else {
+            XCTFail("Expected .databases tab type, got \(activeTab.type)")
+        }
+
+        // Calling openDatabasesTab again should not duplicate
+        let initialCount = vm.tabs.count
+        vm.openDatabasesTab()
+        XCTAssertEqual(vm.tabs.count, initialCount)
+    }
 }
 

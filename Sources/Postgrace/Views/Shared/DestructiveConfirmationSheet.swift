@@ -19,12 +19,14 @@ struct DestructiveConfirmationSheet: View {
         case dropSchema
         case dropTable
         case truncateTable
+        case dropDatabase
 
         var buttonTitle: String {
             switch self {
             case .dropSchema: return "Drop Schema"
             case .dropTable: return "Drop Table"
             case .truncateTable: return "Truncate Table"
+            case .dropDatabase: return "Drop Database"
             }
         }
 
@@ -33,6 +35,7 @@ struct DestructiveConfirmationSheet: View {
             case .dropSchema: return "folder.badge.minus"
             case .dropTable: return "trash"
             case .truncateTable: return "eraser.line.dashed"
+            case .dropDatabase: return "cylinder.split.1x2"
             }
         }
     }
@@ -96,10 +99,16 @@ struct DestructiveConfirmationSheet: View {
                 case .truncateTable:
                     Text("Truncating table **\"\(targetName)\"** will instantly erase all rows in the table and reset identity sequences.")
                         .font(.callout)
+                case .dropDatabase:
+                    Text("Dropping database **\"\(targetName)\"** will permanently delete the entire database, its schemas, tables, and all data stored within it.")
+                        .font(.callout)
                 }
 
                 if allowsCascade {
-                    Toggle("Cascade (automatically drop all dependent objects/foreign keys)", isOn: $cascade)
+                    let toggleLabel = (actionType == .dropDatabase)
+                        ? "Force drop (terminate active client connections first)"
+                        : "Cascade (automatically drop all dependent objects/foreign keys)"
+                    Toggle(toggleLabel, isOn: $cascade)
                         .font(.caption)
                         .foregroundColor(.primary)
                         .padding(.top, 4)
@@ -140,6 +149,6 @@ struct DestructiveConfirmationSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 440, height: 340)
+        .frame(width: 440, height: 350)
     }
 }

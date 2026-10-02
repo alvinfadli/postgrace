@@ -10,6 +10,10 @@ struct WorkspaceToolbarView: View {
     @Environment(ExportViewModel.self) private var exportViewModel
     @Environment(ImportViewModel.self) private var importViewModel
 
+    @State private var showingCreateDatabaseSheet: Bool = false
+    @State private var databaseToDrop: DatabaseInfo?
+    @State private var dropDatabaseError: String?
+
     var body: some View {
         HStack(spacing: 8) {
             // Space for macOS native window traffic lights (close, minimize, zoom)
@@ -126,6 +130,39 @@ struct WorkspaceToolbarView: View {
 
                     Divider()
 
+                    Section("Database Management") {
+                        Button {
+                            tabViewModel.openDatabasesTab()
+                        } label: {
+                            Label("Databases Catalog…", systemImage: "cylinder.split.1x2")
+                        }
+
+                        Button {
+                            showingCreateDatabaseSheet = true
+                        } label: {
+                            Label("New Database…", systemImage: "plus")
+                        }
+                        .disabled(!schemaViewModel.canCreateDatabase)
+
+                        Menu("Drop Database") {
+                            ForEach(connectionViewModel.availableDatabases) { db in
+                                let (canDrop, reason) = schemaViewModel.canDropDatabase(db, currentDatabase: conn.database)
+                                Button(role: .destructive) {
+                                    databaseToDrop = db
+                                } label: {
+                                    if !canDrop, let reason = reason {
+                                        Text("\(db.name) (\(reason))")
+                                    } else {
+                                        Text(db.name)
+                                    }
+                                }
+                                .disabled(!canDrop)
+                            }
+                        }
+                    }
+
+                    Divider()
+
                     Button("Export Database '\(conn.database)'…") {
                         exportViewModel.startDatabaseExport(database: conn.database)
                     }
@@ -138,6 +175,8 @@ struct WorkspaceToolbarView: View {
 
                     Button("Refresh Database List") {
                         Task {
+                            let dbs = await schemaViewModel.loadAvailableDatabases()
+                            connectionViewModel.availableDatabases = dbs
                             await schemaViewModel.loadSchemas()
                         }
                     }
@@ -194,6 +233,10 @@ struct WorkspaceToolbarView: View {
                         }
                     case .schemas:
                         Label("Schemas Catalog", systemImage: "square.3.layers.3d")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    case .databases:
+                        Label("Databases Catalog", systemImage: "cylinder.split.1x2")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.secondary)
                     case .tables(let schema):
@@ -255,6 +298,34 @@ struct WorkspaceToolbarView: View {
                 .frame(height: PostgraceTheme.hairlineBorder),
             alignment: .bottom
         )
+        .sheet(isPresented: $showingCreateDatabaseSheet) {
+            CreateDatabaseSheet()
+        }
+        .sheet(item: $databaseToDrop) { db in
+            let (canDrop, reason) = schemaViewModel.canDropDatabase(db, currentDatabase: connectionViewModel.selectedConnection?.database)
+            DestructiveConfirmationSheet(
+                title: "Drop Database \"\(db.name)\"?",
+                targetName: db.name,
+                actionType: .dropDatabase,
+                canPerformAction: canDrop,
+                permissionWarning: reason,
+                allowsCascade: true
+            ) { force in
+                Task {
+                    do {
+                        try await schemaViewModel.dropDatabase(
+                            name: db.name,
+                            force: force,
+                            currentDatabase: connectionViewModel.selectedConnection?.database
+                        )
+                        let dbs = await schemaViewModel.loadAvailableDatabases()
+                        connectionViewModel.availableDatabases = dbs
+                    } catch {
+                        dropDatabaseError = error.localizedDescription
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder

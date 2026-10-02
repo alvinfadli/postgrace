@@ -86,6 +86,21 @@ public class WorkspaceTabViewModel {
         activeTabId = tab.id
     }
 
+    /// Opens or switches to the Databases catalog tab.
+    public func openDatabasesTab() {
+        if let existing = tabs.first(where: {
+            if case .databases = $0.type { return true }
+            return false
+        }) {
+            activeTabId = existing.id
+            return
+        }
+
+        let tab = WorkspaceTab(title: "Databases", type: .databases)
+        tabs.append(tab)
+        activeTabId = tab.id
+    }
+
     /// Opens or switches to the Tables catalog tab for a given schema.
     public func openTablesTab(schema: String) {
         if let existing = tabs.first(where: {

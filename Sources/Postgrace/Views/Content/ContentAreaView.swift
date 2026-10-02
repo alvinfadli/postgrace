@@ -25,6 +25,8 @@ struct ContentAreaView: View {
                     SchemaListView()
                 case .tables(let schema):
                     TableListView(schema: schema)
+                case .databases:
+                    DatabaseListView()
                 }
             } else {
                 if let firstQuery = tabViewModel.tabs.first(where: {

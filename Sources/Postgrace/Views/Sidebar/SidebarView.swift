@@ -53,17 +53,19 @@ struct SidebarView: View {
                 Button {
                     tabViewModel.openDatabasesTab()
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: "cylinder.split.1x2")
                             .foregroundColor(PostgraceTheme.accentSky)
-                            .font(.caption2)
+                            .font(.system(size: 10, weight: .semibold))
                         Text("Databases")
-                            .font(.caption.bold())
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundColor(.primary)
-                        Spacer()
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 5)
                     .background(PostgraceTheme.surfaceElevated)
                     .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
                     .overlay(
@@ -76,17 +78,19 @@ struct SidebarView: View {
                 Button {
                     tabViewModel.openSchemasTab()
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: "square.3.layers.3d")
                             .foregroundColor(PostgraceTheme.accentSky)
-                            .font(.caption2)
+                            .font(.system(size: 10, weight: .semibold))
                         Text("Schemas")
-                            .font(.caption.bold())
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundColor(.primary)
-                        Spacer()
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 5)
                     .background(PostgraceTheme.surfaceElevated)
                     .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
                     .overlay(
@@ -203,7 +207,7 @@ struct SidebarView: View {
                 alignment: .top
             )
         }
-        .frame(width: 220)
+        .frame(maxWidth: .infinity)
         .background(PostgraceTheme.surface)
         .sheet(item: Binding(
             get: { schemaForNewTable.map { IdentifiableString(value: $0) } },
@@ -298,7 +302,7 @@ struct SidebarView: View {
                         Text("No tables in schema")
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                            .padding(.leading, 24)
+                            .padding(.leading, 18)
                             .padding(.vertical, 2)
                     } else {
                         ForEach(filteredTables) { table in
@@ -306,7 +310,7 @@ struct SidebarView: View {
                         }
                     }
                 }
-                .padding(.leading, 12)
+                .padding(.leading, 8)
             }
         }
         .task(id: "\(connectionViewModel.selectedConnection?.database ?? "")_\(schema.name)") {
@@ -343,17 +347,24 @@ struct SidebarView: View {
                     if schemaViewModel.tableDetails[schema.name] == nil {
                         await schemaViewModel.loadTableDetails(for: schema.name)
                     }
+                    await schemaViewModel.loadAccurateRowCount(schema: schema.name, table: table.name)
                 }
             },
             onOpenData: {
                 schemaViewModel.selectedSchema = schema
                 schemaViewModel.selectedTable = table
                 tabViewModel.openTableTab(schema: schema.name, table: table.name)
+                Task {
+                    await schemaViewModel.loadAccurateRowCount(schema: schema.name, table: table.name)
+                }
             },
             onOpenStructure: {
                 schemaViewModel.selectedSchema = schema
                 schemaViewModel.selectedTable = table
                 tabViewModel.openStructureTab(schema: schema.name, table: table.name)
+                Task {
+                    await schemaViewModel.loadAccurateRowCount(schema: schema.name, table: table.name)
+                }
             },
             onQueryInEditor: {
                 queryViewModel.queryText = "SELECT * FROM \"\(schema.name)\".\"\(table.name)\" LIMIT 100;"
@@ -428,13 +439,35 @@ struct SidebarView: View {
 
                 // Key/Value Metric Pairs
                 VStack(spacing: 3) {
-                    metadataRow(
-                        label: "Rows",
-                        value: {
-                            let rc = detail?.rowCount ?? table.estimatedRowCount
-                            return rc >= 0 ? "\(rc)" : "0"
-                        }()
-                    )
+                    HStack(spacing: 4) {
+                        Text("Rows")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        if schemaViewModel.isLoadingRowCount["\(table.schema).\(table.name)"] == true {
+                            ProgressView()
+                                .controlSize(.mini)
+                        } else {
+                            let rc = schemaViewModel.accurateRowCount(for: table)
+                            Text(rc >= 0 ? "\(rc)" : "0")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundColor(.primary)
+
+                            Button {
+                                Task {
+                                    await schemaViewModel.loadAccurateRowCount(schema: table.schema, table: table.name, forceRefresh: true)
+                                }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Recalculate live accurate row count")
+                        }
+                    }
+
                     metadataRow(label: "Disk Size", value: detail?.totalSize ?? "—")
                     if let idxSize = detail?.indexSize, idxSize != "—" && idxSize != "0 bytes" {
                         metadataRow(label: "Index Size", value: idxSize)
@@ -460,6 +493,9 @@ struct SidebarView: View {
             )
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
+            .task(id: "\(table.schema).\(table.name)") {
+                await schemaViewModel.loadAccurateRowCount(schema: table.schema, table: table.name)
+            }
         }
     }
 

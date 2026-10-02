@@ -94,6 +94,7 @@ struct ContentAreaView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: "\(schema).\(table)") {
             await dataGridViewModel.loadTableData(schema: schema, table: table)
+            schemaViewModel.setAccurateRowCount(schema: schema, table: table, count: dataGridViewModel.totalRows)
         }
     }
 

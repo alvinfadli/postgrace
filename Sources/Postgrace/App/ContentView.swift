@@ -19,10 +19,10 @@ struct ContentView: View {
                     // 1. TOP UNIFIED TITLEBAR (Traffic Lights + DB Switcher + Privilege Badge)
                     WorkspaceToolbarView()
 
-                    // 2. 2-PANE WORKSPACE BODY (220px Sidebar + Edge-to-Edge Document View)
+                    // 2. 2-PANE WORKSPACE BODY (240px Sidebar + Edge-to-Edge Document View)
                     HStack(spacing: 0) {
                         SidebarView()
-                            .frame(width: 220)
+                            .frame(width: 240)
 
                         // 1px Vertical Divider
                         Rectangle()

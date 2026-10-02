@@ -83,7 +83,14 @@ public actor SchemaService {
         let query = """
             SELECT c.relname,
                    c.oid,
-                   COALESCE(c.reltuples::bigint, 0) AS estimated_row_count,
+                   GREATEST(
+                       0,
+                       COALESCE(
+                           NULLIF(c.reltuples::bigint, -1),
+                           s.n_live_tup,
+                           0
+                       )
+                   ) AS estimated_row_count,
                    CASE c.relkind
                        WHEN 'r' THEN 'BASE TABLE'
                        WHEN 'p' THEN 'BASE TABLE'
@@ -94,6 +101,7 @@ public actor SchemaService {
                    END AS table_type
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
             WHERE n.nspname = '\(schema.pgEscapedLiteral)'
               AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
             ORDER BY c.relname ASC;
@@ -341,7 +349,7 @@ public actor SchemaService {
         return details
     }
 
-    /// Fetches detailed table metadata for a specific schema.
+    /// Fetches detailed table metadata for a specific schema with accurate row counts.
     public func fetchTableDetails(schema: String) async throws -> [TableDetail] {
         let query = """
             SELECT c.relname,
@@ -354,20 +362,33 @@ public actor SchemaService {
                        WHEN 'f' THEN 'FOREIGN TABLE'
                        ELSE 'BASE TABLE'
                    END AS table_type,
-                   COALESCE(c.reltuples::bigint, 0) AS est_row_count,
+                   GREATEST(
+                       0,
+                       COALESCE(
+                           NULLIF(c.reltuples::bigint, -1),
+                           s.n_live_tup,
+                           0
+                       )
+                   ) AS est_row_count,
                    pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size,
                    pg_size_pretty(pg_indexes_size(c.oid)) AS index_size,
                    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = n.nspname AND table_name = c.relname)::int AS col_count,
                    (pg_has_role(current_user, c.relowner, 'MEMBER') OR (SELECT usesuper FROM pg_user WHERE usename = current_user)) AS is_owner,
-                   has_table_privilege(current_user, c.oid, 'INSERT') AS can_insert
+                   has_table_privilege(current_user, c.oid, 'INSERT') AS can_insert,
+                   c.relkind,
+                   has_table_privilege(current_user, c.oid, 'SELECT') AS can_select,
+                   c.relpages
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
             WHERE n.nspname = '\(schema.pgEscapedLiteral)'
               AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
             ORDER BY c.relname ASC;
         """
         let result = try await postgresService.executeQuery(query)
         var details: [TableDetail] = []
+        var eligibleForExactCount: [String] = []
+
         for row in result.rows {
             guard row.count >= 9,
                   case .string(let name) = row[0] else { continue }
@@ -413,6 +434,26 @@ public actor SchemaService {
                 return false
             }()
 
+            let relkind: String = {
+                if row.count >= 10, case .string(let k) = row[9] { return k }
+                return "r"
+            }()
+
+            let canSelect: Bool = {
+                if row.count >= 11, case .bool(let b) = row[10] { return b }
+                return true
+            }()
+
+            let relpages: Int64 = {
+                if row.count >= 12, case .int(let p) = row[11] { return p }
+                return 0
+            }()
+
+            // Base tables or partitioned tables under ~100MB disk size are eligible for live exact COUNT(*)
+            if (relkind == "r" || relkind == "p" || relkind == "m") && canSelect && relpages <= 12500 {
+                eligibleForExactCount.append(name)
+            }
+
             let tableType = TableType(rawValue: typeStr) ?? .table
             details.append(TableDetail(
                 schema: schema,
@@ -427,7 +468,60 @@ public actor SchemaService {
                 canInsert: canInsert
             ))
         }
+
+        // Fetch accurate live row counts for eligible tables
+        if !eligibleForExactCount.isEmpty {
+            let exactCounts = await fetchAccurateRowCounts(schema: schema, tableNames: eligibleForExactCount)
+            for i in 0..<details.count {
+                if let exact = exactCounts[details[i].name] {
+                    details[i].rowCount = exact
+                }
+            }
+        }
+
         return details
+    }
+
+    /// Fetches the live row count for a specific table.
+    public func fetchTableRowCount(schema: String, table: String) async throws -> Int64 {
+        try await postgresService.fetchTableRowCount(schema: schema, table: table)
+    }
+
+    /// Fetches live, accurate row counts for a batch of tables in a schema using optimized batch queries.
+    public func fetchAccurateRowCounts(schema: String, tableNames: [String]) async -> [String: Int64] {
+        guard !tableNames.isEmpty else { return [:] }
+        var counts: [String: Int64] = [:]
+
+        let chunkSize = 25
+        for chunkStart in stride(from: 0, to: tableNames.count, by: chunkSize) {
+            let chunk = Array(tableNames[chunkStart..<min(chunkStart + chunkSize, tableNames.count)])
+            let unionSql = chunk.map { tbl in
+                "SELECT '\(tbl.pgEscapedLiteral)' AS tbl, COUNT(*)::bigint AS cnt FROM \(schema.pgQuotedIdentifier).\(tbl.pgQuotedIdentifier)"
+            }.joined(separator: " UNION ALL ")
+
+            do {
+                let res = try await postgresService.executeQuery(unionSql)
+                for row in res.rows {
+                    if row.count >= 2,
+                       case .string(let tbl) = row[0] {
+                        if case .int(let cnt) = row[1] {
+                            counts[tbl] = cnt
+                        } else if case .string(let str) = row[1], let cnt = Int64(str) {
+                            counts[tbl] = cnt
+                        }
+                    }
+                }
+            } catch {
+                // If the batch fails (e.g. locks or specific table error), try individually
+                for tbl in chunk {
+                    if let cnt = try? await postgresService.fetchTableRowCount(schema: schema, table: tbl) {
+                        counts[tbl] = cnt
+                    }
+                }
+            }
+        }
+
+        return counts
     }
 
     // MARK: - Schema CRUD

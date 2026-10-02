@@ -39,14 +39,23 @@ public enum PostgraceTheme {
     
     // MARK: - Semantic Modern Flat Accent Tokens
     
-    /// Primary Brand Flat Cobalt Blue (#3B82F6 Dark / #2563EB Light)
-    public static let accentSky = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#3B82F6") : NSColor(hex: "#2563EB")
+    /// Primary Brand Flat Emerald Green (#10B981 Dark / #059669 Light)
+    public static let accentEmerald = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#10B981") : NSColor(hex: "#059669")
     }))
     
-    public static let accentSkyMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#3B82F6").withAlphaComponent(0.12) : NSColor(hex: "#2563EB").withAlphaComponent(0.10)
+    public static let accentEmeraldMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#10B981").withAlphaComponent(0.12) : NSColor(hex: "#059669").withAlphaComponent(0.10)
     }))
+    
+    /// High-Lumen Mint Accent for focus rings & live connection pings (#34D399 Dark / #10B981 Light)
+    public static let accentMint = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#34D399") : NSColor(hex: "#10B981")
+    }))
+    
+    /// Backward-compatible primary brand alias pointing to the new Emerald Green accent
+    public static let accentSky = accentEmerald
+    public static let accentSkyMuted = accentEmeraldMuted
     
     /// Superuser Flat Indigo Tier (#6366F1 Dark / #4F46E5 Light)
     public static let purpleSuper = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
@@ -57,14 +66,9 @@ public enum PostgraceTheme {
         appearance.isDark ? NSColor(hex: "#6366F1").withAlphaComponent(0.12) : NSColor(hex: "#4F46E5").withAlphaComponent(0.10)
     }))
     
-    /// Read-Write Flat Emerald Tier (#10B981 Dark / #059669 Light)
-    public static let emeraldRw = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#10B981") : NSColor(hex: "#059669")
-    }))
-    
-    public static let emeraldRwMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#10B981").withAlphaComponent(0.12) : NSColor(hex: "#059669").withAlphaComponent(0.10)
-    }))
+    /// Read-Write Tier (Flat Emerald)
+    public static let emeraldRw = accentEmerald
+    public static let emeraldRwMuted = accentEmeraldMuted
     
     /// Read-Only Flat Amber Tier (#F59E0B Dark / #D97706 Light)
     public static let amberRo = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in

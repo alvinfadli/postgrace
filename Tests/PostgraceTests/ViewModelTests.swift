@@ -411,5 +411,45 @@ final class ViewModelTests: XCTestCase {
         vm.openDatabasesTab()
         XCTAssertEqual(vm.tabs.count, initialCount)
     }
+
+    // MARK: - Table Accurate Row Count Tests
+
+    func testAccurateRowCountManagement() {
+        let postgres = PostgresService()
+        let schemaService = SchemaService(postgresService: postgres)
+        let vm = SchemaViewModel(schemaService: schemaService)
+
+        let table = TableInfo(
+            schema: "public",
+            name: "customers",
+            oid: 12345,
+            estimatedRowCount: 0,
+            tableType: .table
+        )
+
+        // 1. Initial fallback: estimatedRowCount from TableInfo
+        XCTAssertEqual(vm.accurateRowCount(for: table), 0)
+
+        // 2. Fallback to TableDetail if present
+        let detail = TableDetail(
+            schema: "public",
+            name: "customers",
+            oid: 12345,
+            tableType: .table,
+            rowCount: 42,
+            totalSize: "16 kB",
+            indexSize: "8 kB",
+            columnCount: 3,
+            isOwner: true
+        )
+        vm.tableDetails["public"] = [detail]
+        XCTAssertEqual(vm.accurateRowCount(for: table), 42)
+
+        // 3. Highest priority: live accurate row count override
+        vm.setAccurateRowCount(schema: "public", table: "customers", count: 999)
+        XCTAssertEqual(vm.accurateRowCount(for: table), 999)
+        XCTAssertEqual(vm.accurateRowCounts["public.customers"], 999)
+        XCTAssertEqual(vm.tableDetails["public"]?.first?.rowCount, 999)
+    }
 }
 

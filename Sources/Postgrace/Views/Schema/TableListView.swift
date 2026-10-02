@@ -207,8 +207,9 @@ struct TableListView: View {
                     }
                     .width(min: 80, ideal: 100)
 
-                    TableColumn("Est. Rows") { table in
-                        Text(table.rowCount >= 0 ? "\(table.rowCount)" : "—")
+                    TableColumn("Rows") { table in
+                        let count = schemaViewModel.accurateRowCounts["\(schema).\(table.name)"] ?? table.rowCount
+                        Text(count >= 0 ? "\(count)" : "—")
                             .font(.callout.monospacedDigit())
                     }
                     .width(min: 70, ideal: 90)

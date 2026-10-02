@@ -335,6 +335,11 @@ final class PostgresIntegrationTests: XCTestCase {
         let countBefore = try await postgresService.fetchTableRowCount(schema: "public", table: table2, filterClause: "")
         XCTAssertEqual(countBefore, 1)
 
+        // Verify that fetchTableDetails reflects the accurate live row count (1) even without manual VACUUM/ANALYZE
+        let updatedDetails = try await schemaService.fetchTableDetails(schema: "public")
+        let table2Detail = updatedDetails.first { $0.name == table2 }
+        XCTAssertEqual(table2Detail?.rowCount, 1, "fetchTableDetails should return accurate live row count")
+
         try await schemaService.truncateTable(schema: "public", name: table2)
         let countAfter = try await postgresService.fetchTableRowCount(schema: "public", table: table2, filterClause: "")
         XCTAssertEqual(countAfter, 0)

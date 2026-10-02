@@ -53,7 +53,7 @@ public struct TableInfo: Identifiable, Hashable {
     public let schema: String
     public let name: String
     public let oid: UInt32
-    public let estimatedRowCount: Int64
+    public var estimatedRowCount: Int64
     public let tableType: TableType
     
     public init(schema: String, name: String, oid: UInt32, estimatedRowCount: Int64, tableType: TableType) {
@@ -234,7 +234,7 @@ public struct TableDetail: Identifiable, Hashable {
     public let name: String
     public let oid: UInt32
     public let tableType: TableType
-    public let rowCount: Int64
+    public var rowCount: Int64
     public let totalSize: String
     public let indexSize: String
     public let columnCount: Int

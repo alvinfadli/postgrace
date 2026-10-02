@@ -10,6 +10,8 @@ public class SchemaViewModel {
     public var schemaDetails: [SchemaDetail] = []
     public var tableDetails: [String: [TableDetail]] = [:]
     public var databases: [DatabaseInfo] = []
+    public var accurateRowCounts: [String: Int64] = [:]
+    public var isLoadingRowCount: [String: Bool] = [:]
     public var userPrivileges: UserPrivilegeInfo?
     public var selectedSchema: SchemaInfo?
     public var selectedTable: TableInfo?
@@ -107,7 +109,11 @@ public class SchemaViewModel {
     public func loadTableDetails(for schema: String) async {
         isLoading = true
         do {
-            tableDetails[schema] = try await schemaService.fetchTableDetails(schema: schema)
+            let details = try await schemaService.fetchTableDetails(schema: schema)
+            tableDetails[schema] = details
+            for d in details {
+                accurateRowCounts["\(schema).\(d.name)"] = d.rowCount
+            }
         } catch {
             print("Error loading table details for \(schema): \(error)")
             tableDetails[schema] = []
@@ -127,11 +133,63 @@ public class SchemaViewModel {
         isLoading = false
     }
 
+    // MARK: - Live Accurate Row Counts
+
+    /// Returns the most accurate row count available for a table (exact count if loaded, fallback to detail/estimate).
+    public func accurateRowCount(for table: TableInfo) -> Int64 {
+        let key = "\(table.schema).\(table.name)"
+        if let exact = accurateRowCounts[key] {
+            return exact
+        }
+        if let detail = tableDetails[table.schema]?.first(where: { $0.name == table.name }) {
+            return detail.rowCount
+        }
+        return table.estimatedRowCount
+    }
+
+    /// Fetches the accurate live row count for a specific table on demand.
+    @discardableResult
+    public func loadAccurateRowCount(schema: String, table: String, forceRefresh: Bool = false) async -> Int64? {
+        let key = "\(schema).\(table)"
+        if !forceRefresh, let existing = accurateRowCounts[key] {
+            return existing
+        }
+
+        isLoadingRowCount[key] = true
+        defer { isLoadingRowCount[key] = false }
+
+        do {
+            let count = try await schemaService.fetchTableRowCount(schema: schema, table: table)
+            setAccurateRowCount(schema: schema, table: table, count: count)
+            return count
+        } catch {
+            return nil
+        }
+    }
+
+    /// Manually sets or syncs the accurate row count (e.g. from DataGridViewModel or after DDL/DML).
+    public func setAccurateRowCount(schema: String, table: String, count: Int64) {
+        let key = "\(schema).\(table)"
+        accurateRowCounts[key] = count
+
+        // Update in tableDetails
+        if let idx = tableDetails[schema]?.firstIndex(where: { $0.name == table }) {
+            tableDetails[schema]?[idx].rowCount = count
+        }
+
+        // Update in tables
+        if let idx = tables[schema]?.firstIndex(where: { $0.name == table }) {
+            tables[schema]?[idx].estimatedRowCount = count
+        }
+    }
+
     /// Refresh all schema data and user privileges.
     public func refresh() async {
         tables.removeAll()
         columns.removeAll()
         tableDetails.removeAll()
+        accurateRowCounts.removeAll()
+        isLoadingRowCount.removeAll()
         selectedSchema = nil
         selectedTable = nil
         crudError = nil

@@ -9,3 +9,8 @@ DerivedData/
 
 # OS X
 .DS_Store
+
+# QA & Audit Reports
+*audit*
+*Audit*
+*AUDIT*

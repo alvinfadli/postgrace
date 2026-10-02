@@ -535,7 +535,13 @@ public actor PostgresService {
     }
 
     /// Executes a batched multi-row INSERT statement safely with escaped literals.
-    public func executeBatchInsert(schema: String, table: String, columns: [String], rows: [[String]]) async throws -> Int {
+    public func executeBatchInsert(
+        schema: String,
+        table: String,
+        columns: [String],
+        rows: [[String]],
+        treatEmptyAsNull: Bool = true
+    ) async throws -> Int {
         guard !rows.isEmpty else { return 0 }
         let colsList = columns.map { $0.pgQuotedIdentifier }.joined(separator: ", ")
         var valueClauses: [String] = []
@@ -543,7 +549,7 @@ public actor PostgresService {
         for row in rows {
             let rowVals = row.map { val -> String in
                 if val.isEmpty {
-                    return "NULL"
+                    return treatEmptyAsNull ? "NULL" : "''"
                 }
                 return "'\(val.pgEscapedLiteral)'"
             }.joined(separator: ", ")

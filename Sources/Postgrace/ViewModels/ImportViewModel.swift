@@ -104,13 +104,22 @@ public final class ImportViewModel {
         }
     }
 
+    private var activeTask: Task<Void, Never>?
+
+    public func cancelImport() {
+        activeTask?.cancel()
+        activeTask = nil
+        isImporting = false
+        progress.status = .cancelled
+    }
+
     /// Executes the import task.
     public func performImport() {
         guard let config = configuration else { return }
         self.isImporting = true
         self.errorMessage = nil
 
-        Task { @MainActor in
+        self.activeTask = Task { @MainActor in
             do {
                 try await importService.importData(config: config) { [weak self] currentProgress in
                     Task { @MainActor in
@@ -118,6 +127,9 @@ public final class ImportViewModel {
                     }
                 }
                 self.isImporting = false
+            } catch is CancellationError {
+                self.isImporting = false
+                self.progress.status = .cancelled
             } catch {
                 self.isImporting = false
                 self.errorMessage = error.localizedDescription
@@ -126,7 +138,9 @@ public final class ImportViewModel {
     }
 
     public func closeSheet() {
-        guard !isImporting else { return }
+        if isImporting {
+            cancelImport()
+        }
         self.isShowingSheet = false
     }
 }

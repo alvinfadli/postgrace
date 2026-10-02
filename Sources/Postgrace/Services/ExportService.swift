@@ -24,6 +24,35 @@ public final class ExportService {
         }
     }
 
+    private final class BufferedFileHandle {
+        private let fileHandle: FileHandle
+        private var buffer = Data()
+        private let bufferLimit: Int = 64 * 1024 // 64 KB write buffer
+
+        init(fileHandle: FileHandle) {
+            self.fileHandle = fileHandle
+            buffer.reserveCapacity(bufferLimit)
+        }
+
+        func write(_ data: Data) throws {
+            buffer.append(data)
+            if buffer.count >= bufferLimit {
+                try flush()
+            }
+        }
+
+        func flush() throws {
+            guard !buffer.isEmpty else { return }
+            try fileHandle.write(contentsOf: buffer)
+            buffer.removeAll(keepingCapacity: true)
+        }
+
+        func close() {
+            try? flush()
+            try? fileHandle.close()
+        }
+    }
+
     /// Performs export according to the configuration, streaming progress via callback.
     public func export(
         config: ExportConfiguration,
@@ -65,8 +94,16 @@ public final class ExportService {
                 )
             }
 
-            context.progress.status = .completed("Successfully exported to \(destinationURL.lastPathComponent)")
+            if Task.isCancelled {
+                context.progress.status = .cancelled
+            } else {
+                context.progress.status = .completed("Successfully exported to \(destinationURL.lastPathComponent)")
+            }
             context.notify()
+        } catch is CancellationError {
+            context.progress.status = .cancelled
+            context.notify()
+            throw CancellationError()
         } catch {
             context.progress.status = .failed(error.localizedDescription)
             context.progress.errorLog.append(error.localizedDescription)
@@ -89,7 +126,8 @@ public final class ExportService {
         }
         FileManager.default.createFile(atPath: destinationURL.path, contents: nil, attributes: nil)
         let fileHandle = try FileHandle(forWritingTo: destinationURL)
-        defer { try? fileHandle.close() }
+        let bufferedHandle = BufferedFileHandle(fileHandle: fileHandle)
+        defer { bufferedHandle.close() }
 
         let total = try? await postgresService.fetchTableRowCount(
             schema: schema,
@@ -114,14 +152,14 @@ public final class ExportService {
             try await exportTableToCSV(
                 querySQL: querySQL,
                 config: config,
-                fileHandle: fileHandle,
+                bufferedHandle: bufferedHandle,
                 context: context
             )
         case .json:
             try await exportTableToJSON(
                 querySQL: querySQL,
                 config: config,
-                fileHandle: fileHandle,
+                bufferedHandle: bufferedHandle,
                 context: context
             )
         case .sql:
@@ -130,7 +168,7 @@ public final class ExportService {
                 table: table,
                 querySQL: querySQL,
                 config: config,
-                fileHandle: fileHandle,
+                bufferedHandle: bufferedHandle,
                 context: context
             )
         case .customDump:
@@ -141,30 +179,36 @@ public final class ExportService {
                 context: context
             )
         }
+
+        try bufferedHandle.flush()
     }
 
     private func exportTableToCSV(
         querySQL: String,
         config: ExportConfiguration,
-        fileHandle: FileHandle,
+        bufferedHandle: BufferedFileHandle,
         context: ExportContext
     ) async throws {
         var isFirstRow = true
 
         if config.csvIncludeBOM {
             if let bomData = "\u{FEFF}".data(using: .utf8) {
-                try fileHandle.write(contentsOf: bomData)
+                try bufferedHandle.write(bomData)
                 context.progress.bytesTransferred += Int64(bomData.count)
             }
         }
 
         _ = try await postgresService.streamQuery(querySQL) { columns, row in
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
             if isFirstRow {
                 isFirstRow = false
                 if config.csvIncludeHeaders {
                     let headerLine = CSVHandler.encodeRow(columns.map(\.name), delimiter: config.csvDelimiter) + "\n"
                     if let data = headerLine.data(using: .utf8) {
-                        try fileHandle.write(contentsOf: data)
+                        try bufferedHandle.write(data)
                         context.progress.bytesTransferred += Int64(data.count)
                     }
                 }
@@ -186,7 +230,7 @@ public final class ExportService {
 
             let rowLine = CSVHandler.encodeRow(strValues, delimiter: config.csvDelimiter) + "\n"
             if let data = rowLine.data(using: .utf8) {
-                try fileHandle.write(contentsOf: data)
+                try bufferedHandle.write(data)
                 context.progress.bytesTransferred += Int64(data.count)
             }
 
@@ -200,7 +244,7 @@ public final class ExportService {
     private func exportTableToJSON(
         querySQL: String,
         config: ExportConfiguration,
-        fileHandle: FileHandle,
+        bufferedHandle: BufferedFileHandle,
         context: ExportContext
     ) async throws {
         let isNDJSON = config.jsonFlavor == .ndjson
@@ -209,12 +253,16 @@ public final class ExportService {
         if !isNDJSON {
             let startArray = "[\n"
             if let data = startArray.data(using: .utf8) {
-                try fileHandle.write(contentsOf: data)
+                try bufferedHandle.write(data)
                 context.progress.bytesTransferred += Int64(data.count)
             }
         }
 
         _ = try await postgresService.streamQuery(querySQL) { columns, row in
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
             var dict: [String: Any] = [:]
             for (idx, col) in columns.enumerated() {
                 if idx < row.count {
@@ -243,7 +291,7 @@ public final class ExportService {
                 }
 
                 if let data = line.data(using: .utf8) {
-                    try fileHandle.write(contentsOf: data)
+                    try bufferedHandle.write(data)
                     context.progress.bytesTransferred += Int64(data.count)
                 }
             }
@@ -257,7 +305,7 @@ public final class ExportService {
         if !isNDJSON {
             let endArray = "\n]\n"
             if let data = endArray.data(using: .utf8) {
-                try fileHandle.write(contentsOf: data)
+                try bufferedHandle.write(data)
                 context.progress.bytesTransferred += Int64(data.count)
             }
         }
@@ -268,7 +316,7 @@ public final class ExportService {
         table: String,
         querySQL: String,
         config: ExportConfiguration,
-        fileHandle: FileHandle,
+        bufferedHandle: BufferedFileHandle,
         context: ExportContext
     ) async throws {
         let headerComments = """
@@ -280,14 +328,14 @@ public final class ExportService {
         
         """
         if let data = headerComments.data(using: .utf8) {
-            try fileHandle.write(contentsOf: data)
+            try bufferedHandle.write(data)
             context.progress.bytesTransferred += Int64(data.count)
         }
 
         if config.sqlIncludeDropTable {
             let dropStmt = "DROP TABLE IF EXISTS \(schema.pgQuotedIdentifier).\(table.pgQuotedIdentifier);\n\n"
             if let data = dropStmt.data(using: .utf8) {
-                try fileHandle.write(contentsOf: data)
+                try bufferedHandle.write(data)
                 context.progress.bytesTransferred += Int64(data.count)
             }
         }
@@ -313,13 +361,17 @@ public final class ExportService {
                 valueRows.joined(separator: ",\n  ") + ";\n\n"
 
             if let data = insertSQL.data(using: .utf8) {
-                try fileHandle.write(contentsOf: data)
+                try bufferedHandle.write(data)
                 context.progress.bytesTransferred += Int64(data.count)
             }
             rowBatch.removeAll(keepingCapacity: true)
         }
 
         _ = try await postgresService.streamQuery(querySQL) { columns, row in
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
             if colNames.isEmpty {
                 colNames = columns.map(\.name)
             }
@@ -351,7 +403,7 @@ public final class ExportService {
 
         let footer = "COMMIT;\n"
         if let data = footer.data(using: .utf8) {
-            try fileHandle.write(contentsOf: data)
+            try bufferedHandle.write(data)
             context.progress.bytesTransferred += Int64(data.count)
         }
     }

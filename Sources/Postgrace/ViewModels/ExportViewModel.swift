@@ -59,11 +59,20 @@ public final class ExportViewModel {
         }
     }
 
+    private var activeTask: Task<Void, Never>?
+
+    public func cancelExport() {
+        activeTask?.cancel()
+        activeTask = nil
+        isExporting = false
+        progress.status = .cancelled
+    }
+
     private func performExport(to destinationURL: URL) {
         self.isExporting = true
         self.errorMessage = nil
 
-        Task { @MainActor in
+        self.activeTask = Task { @MainActor in
             do {
                 try await exportService.export(
                     config: configuration,
@@ -74,6 +83,9 @@ public final class ExportViewModel {
                     }
                 }
                 self.isExporting = false
+            } catch is CancellationError {
+                self.isExporting = false
+                self.progress.status = .cancelled
             } catch {
                 self.isExporting = false
                 self.errorMessage = error.localizedDescription
@@ -82,7 +94,9 @@ public final class ExportViewModel {
     }
 
     public func closeSheet() {
-        guard !isExporting else { return }
+        if isExporting {
+            cancelExport()
+        }
         self.isShowingSheet = false
     }
 }

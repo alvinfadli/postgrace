@@ -116,12 +116,17 @@ public final class ImportService {
                     projectedRows.append(projectedRow)
                 }
 
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+
                 do {
                     _ = try await self.postgresService.executeBatchInsert(
                         schema: schema,
                         table: table,
                         columns: targetColumns,
-                        rows: projectedRows
+                        rows: projectedRows,
+                        treatEmptyAsNull: config.treatEmptyAsNull
                     )
                     context.progress.rowsProcessed += Int64(projectedRows.count)
                     context.notify()
@@ -139,6 +144,10 @@ public final class ImportService {
                 url: config.sourceURL,
                 batchSize: config.batchSize
             ) { recordBatch in
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+
                 var projectedRows: [[String]] = []
                 for record in recordBatch {
                     var projectedRow: [String] = []
@@ -153,7 +162,8 @@ public final class ImportService {
                         schema: schema,
                         table: table,
                         columns: targetColumns,
-                        rows: projectedRows
+                        rows: projectedRows,
+                        treatEmptyAsNull: config.treatEmptyAsNull
                     )
                     context.progress.rowsProcessed += Int64(projectedRows.count)
                     context.notify()
@@ -260,13 +270,17 @@ public final class ImportService {
         context: ImportContext
     ) async throws {
         let content = try String(contentsOf: fileURL, encoding: .utf8)
-        let statements = content.components(separatedBy: ";")
+        let statements = SQLScriptSplitter.split(content)
 
         context.progress.totalRows = Int64(statements.count)
         context.progress.currentOperation = "Executing SQL script..."
         context.notify()
 
         for stmt in statements {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
             let trimmed = stmt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
 

@@ -135,4 +135,89 @@ final class DataTransferTests: XCTestCase {
         XCTAssertEqual(progress.formattedBytes, "1.0 MB")
         XCTAssertGreaterThan(progress.throughputRowsPerSecond, 0)
     }
+
+    // MARK: - SQLScriptSplitter Tests
+
+    func testSQLScriptSplitterSimpleStatements() {
+        let sql = "SELECT 1; SELECT 2; SELECT 3;"
+        let statements = SQLScriptSplitter.split(sql)
+        XCTAssertEqual(statements.count, 3)
+        XCTAssertEqual(statements[0], "SELECT 1")
+        XCTAssertEqual(statements[1], "SELECT 2")
+        XCTAssertEqual(statements[2], "SELECT 3")
+    }
+
+    func testSQLScriptSplitterPreservesSemicolonsInStrings() {
+        let sql = "INSERT INTO users (name) VALUES ('Smith; John'); SELECT 'a;b;c' AS letters;"
+        let statements = SQLScriptSplitter.split(sql)
+        XCTAssertEqual(statements.count, 2)
+        XCTAssertEqual(statements[0], "INSERT INTO users (name) VALUES ('Smith; John')")
+        XCTAssertEqual(statements[1], "SELECT 'a;b;c' AS letters")
+    }
+
+    func testSQLScriptSplitterHandlesEscapedQuotes() {
+        let sql = "INSERT INTO notes (body) VALUES ('It''s a note; with semicolon'); SELECT 1;"
+        let statements = SQLScriptSplitter.split(sql)
+        XCTAssertEqual(statements.count, 2)
+        XCTAssertEqual(statements[0], "INSERT INTO notes (body) VALUES ('It''s a note; with semicolon')")
+        XCTAssertEqual(statements[1], "SELECT 1")
+    }
+
+    func testSQLScriptSplitterIgnoresComments() {
+        let sql = """
+        -- First query with semicolon;
+        SELECT 1;
+        /* Block comment with
+           semicolon; in between */
+        SELECT 2;
+        """
+        let statements = SQLScriptSplitter.split(sql)
+        XCTAssertEqual(statements.count, 2)
+        XCTAssertTrue(statements[0].contains("SELECT 1"))
+        XCTAssertTrue(statements[1].contains("SELECT 2"))
+    }
+
+    func testSQLScriptSplitterHandlesDollarQuotes() {
+        let sql = """
+        CREATE OR REPLACE FUNCTION add_item(val text) RETURNS void AS $$
+        BEGIN
+            INSERT INTO items (name) VALUES (val);
+            RETURN;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        SELECT add_item('test');
+        """
+        let statements = SQLScriptSplitter.split(sql)
+        XCTAssertEqual(statements.count, 2)
+        XCTAssertTrue(statements[0].hasPrefix("CREATE OR REPLACE FUNCTION"))
+        XCTAssertTrue(statements[0].contains("INSERT INTO items (name) VALUES (val);"))
+        XCTAssertEqual(statements[1], "SELECT add_item('test')")
+    }
+
+    func testSQLScriptSplitterHandlesTaggedDollarQuotes() {
+        let sql = """
+        CREATE FUNCTION do_work() RETURNS void AS $body$
+        BEGIN
+            SELECT ';';
+        END;
+        $body$ LANGUAGE plpgsql;
+        """
+        let statements = SQLScriptSplitter.split(sql)
+        XCTAssertEqual(statements.count, 1)
+        XCTAssertTrue(statements[0].contains("$body$"))
+    }
+
+    func testImportConfigurationTreatEmptyAsNull() {
+        var config = ImportConfiguration(
+            targetScope: .table(schema: "public", table: "users"),
+            sourceURL: URL(fileURLWithPath: "/tmp/data.csv"),
+            sourceType: .csv
+        )
+        XCTAssertTrue(config.treatEmptyAsNull)
+
+        config.treatEmptyAsNull = false
+        XCTAssertFalse(config.treatEmptyAsNull)
+    }
 }
+

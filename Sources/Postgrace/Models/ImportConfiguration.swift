@@ -74,6 +74,7 @@ public struct ImportConfiguration: Equatable {
     public var hasHeaders: Bool = true
     public var batchSize: Int = 250
     public var conflictPolicy: ImportConflictPolicy = .abort
+    public var treatEmptyAsNull: Bool = true
     public var columnMappings: [ColumnMappingItem] = []
 
     public init(targetScope: ImportTargetScope, sourceURL: URL, sourceType: ImportSourceType? = nil) {

@@ -128,6 +128,9 @@ public final class PostgresToolchainService {
         process.executableURL = executableURL
         process.arguments = arguments
 
+        // SEC-001: Decouple stdin so subprocess never blocks indefinitely on interactive terminal prompts
+        process.standardInput = FileHandle.nullDevice
+
         // Inject password safely via environment variable (never exposed in ps command list)
         var env = ProcessInfo.processInfo.environment
         env["PGPASSWORD"] = password
@@ -138,10 +141,12 @@ public final class PostgresToolchainService {
         process.standardError = pipe
 
         let outHandle = pipe.fileHandleForReading
+        let logBuffer = LogBuffer()
 
         outHandle.readabilityHandler = { handle in
             let data = handle.availableData
             if let output = String(data: data, encoding: .utf8), !output.isEmpty {
+                logBuffer.append(output)
                 DispatchQueue.main.async {
                     onLog(output)
                 }
@@ -149,16 +154,58 @@ public final class PostgresToolchainService {
         }
 
         try process.run()
-        process.waitUntilExit()
+
+        // Non-blocking wait with Task cancellation support
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    process.waitUntilExit()
+                    continuation.resume()
+                }
+            }
+        } onCancel: {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
 
         outHandle.readabilityHandler = nil
 
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+
         if process.terminationStatus != 0 {
+            let errorDetails = logBuffer.combined()
+            let errorMsg = errorDetails.isEmpty
+                ? "\(executableURL.lastPathComponent) exited with code \(process.terminationStatus)"
+                : "\(executableURL.lastPathComponent) failed (\(process.terminationStatus)): \(errorDetails)"
+
             throw NSError(
                 domain: "PostgresToolchain",
                 code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: "\(executableURL.lastPathComponent) exited with code \(process.terminationStatus)"]
+                userInfo: [NSLocalizedDescriptionKey: errorMsg]
             )
         }
+    }
+}
+
+private final class LogBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var logs: [String] = []
+
+    func append(_ string: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        logs.append(string)
+        if logs.count > 50 {
+            logs.removeFirst(logs.count - 50)
+        }
+    }
+
+    func combined() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return logs.joined().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

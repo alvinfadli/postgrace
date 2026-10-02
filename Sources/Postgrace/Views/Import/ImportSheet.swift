@@ -51,6 +51,19 @@ struct ImportSheet: View {
             // Body
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    if isConnectedUserReadOnly {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(PostgraceTheme.amberRo)
+                            Text("Warning: Connected user '\(schemaViewModel.userPrivileges?.username ?? "")' has Read-Only permissions. Import may fail if the server rejects INSERT / DDL commands.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(10)
+                        .background(PostgraceTheme.amberRoMuted)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+
                     if let config = vm.configuration {
                         // 1. Source File Card
                         sourceFileCard(config: config)
@@ -115,31 +128,35 @@ struct ImportSheet: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
+                } else if vm.isImporting {
+                    Button("Cancel Import") {
+                        vm.cancelImport()
+                    }
+                    .buttonStyle(.bordered)
+                    .foregroundColor(PostgraceTheme.destructiveRed)
+
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.leading, 8)
                 } else {
                     Button("Cancel") {
                         vm.closeSheet()
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)
-                    .disabled(vm.isImporting)
 
                     Button {
                         vm.performImport()
                     } label: {
                         HStack(spacing: 6) {
-                            if vm.isImporting {
-                                ProgressView()
-                                    .controlSize(.mini)
-                            } else {
-                                Image(systemName: "arrow.down.doc")
-                            }
-                            Text(vm.isImporting ? "Importing…" : "Start Import")
+                            Image(systemName: "arrow.down.doc")
+                            Text("Start Import")
                         }
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
                     .tint(PostgraceTheme.accentSky)
-                    .disabled(vm.isImporting || vm.configuration == nil)
+                    .disabled(vm.configuration == nil)
                 }
             }
             .padding(14)
@@ -291,6 +308,15 @@ struct ImportSheet: View {
                 }
                 .controlSize(.small)
             }
+
+            if config.sourceType == .csv || config.sourceType == .json {
+                Toggle("Treat empty text fields as NULL", isOn: Binding(
+                    get: { config.treatEmptyAsNull },
+                    set: { importViewModel.configuration?.treatEmptyAsNull = $0 }
+                ))
+                .font(.system(size: 11))
+                .toggleStyle(.checkbox)
+            }
         }
     }
 
@@ -336,5 +362,12 @@ struct ImportSheet: View {
         case .sql: return "terminal"
         case .customDump: return "archivebox"
         }
+    }
+
+    private var isConnectedUserReadOnly: Bool {
+        guard let privs = schemaViewModel.userPrivileges else { return false }
+        if privs.isSuperuser { return false }
+        if privs.canCreateSchemaInDb { return false }
+        return !privs.schemaPrivileges.values.contains { $0.canCreate }
     }
 }

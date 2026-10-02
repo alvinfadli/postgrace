@@ -138,31 +138,34 @@ struct ExportSheet: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
+                } else if vm.isExporting {
+                    Button("Cancel Export") {
+                        vm.cancelExport()
+                    }
+                    .buttonStyle(.bordered)
+                    .foregroundColor(PostgraceTheme.destructiveRed)
+
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.leading, 8)
                 } else {
                     Button("Cancel") {
                         vm.closeSheet()
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)
-                    .disabled(vm.isExporting)
 
                     Button {
                         vm.promptSaveAndExport()
                     } label: {
                         HStack(spacing: 6) {
-                            if vm.isExporting {
-                                ProgressView()
-                                    .controlSize(.mini)
-                            } else {
-                                Image(systemName: "square.and.arrow.down")
-                            }
-                            Text(vm.isExporting ? "Exporting…" : "Export To File…")
+                            Image(systemName: "square.and.arrow.down")
+                            Text("Export To File…")
                         }
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
                     .tint(PostgraceTheme.accentSky)
-                    .disabled(vm.isExporting)
                 }
             }
             .padding(14)

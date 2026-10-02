@@ -4,6 +4,8 @@ import SwiftUI
 /// Eliminates raw SQL WHERE typing in favor of structured column/operator dropdowns and multiple inputs.
 struct QuickFilterBarView: View {
     @Environment(DataGridViewModel.self) private var dataGridViewModel
+    @Environment(ExportViewModel.self) private var exportViewModel
+    @Environment(SchemaViewModel.self) private var schemaViewModel
     let availableColumns: [String]
     let onApply: () -> Void
 
@@ -87,6 +89,49 @@ struct QuickFilterBarView: View {
                 }
 
                 Spacer()
+
+                // Export Table / Filtered Rows Button
+                Menu {
+                    Button("Export Table Data…") {
+                        if let tbl = schemaViewModel.selectedTable {
+                            exportViewModel.startTableExport(
+                                schema: tbl.schema,
+                                table: tbl.name,
+                                filterClause: ""
+                            )
+                        }
+                    }
+
+                    if !dataVM.filterClause.isEmpty {
+                        Button("Export Filtered Rows (\(dataVM.filterRules.count) conditions)…") {
+                            if let tbl = schemaViewModel.selectedTable {
+                                exportViewModel.startTableExport(
+                                    schema: tbl.schema,
+                                    table: tbl.name,
+                                    filterClause: dataVM.filterClause
+                                )
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 9))
+                        Text("Export")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+                .menuStyle(.borderlessButton)
+                .help("Export table data to CSV, JSON, or SQL")
 
                 // Pagination Controls
                 if dataVM.totalRows > 0 {

@@ -5,9 +5,13 @@ import SwiftUI
 /// free from native macOS NavigationSplitView chrome and translucency).
 struct ContentView: View {
     @Environment(ConnectionViewModel.self) private var connectionViewModel
+    @Environment(ExportViewModel.self) private var exportViewModel
+    @Environment(ImportViewModel.self) private var importViewModel
 
     var body: some View {
         @Bindable var connVM = connectionViewModel
+        @Bindable var exportVM = exportViewModel
+        @Bindable var importVM = importViewModel
 
         ZStack(alignment: .top) {
             if connectionViewModel.isConnected {
@@ -62,6 +66,12 @@ struct ContentView: View {
         }
         .sheet(isPresented: $connVM.showingEditForm) {
             ConnectionFormView(connection: connectionViewModel.connectionToEdit)
+        }
+        .sheet(isPresented: $exportVM.isShowingSheet) {
+            ExportSheet()
+        }
+        .sheet(isPresented: $importVM.isShowingSheet) {
+            ImportSheet()
         }
     }
 }

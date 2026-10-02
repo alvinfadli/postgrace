@@ -7,6 +7,8 @@ struct WorkspaceToolbarView: View {
     @Environment(ConnectionViewModel.self) private var connectionViewModel
     @Environment(SchemaViewModel.self) private var schemaViewModel
     @Environment(WorkspaceTabViewModel.self) private var tabViewModel
+    @Environment(ExportViewModel.self) private var exportViewModel
+    @Environment(ImportViewModel.self) private var importViewModel
 
     var body: some View {
         HStack(spacing: 8) {
@@ -120,6 +122,16 @@ struct WorkspaceToolbarView: View {
                                 }
                             }
                         }
+                    }
+
+                    Divider()
+
+                    Button("Export Database '\(conn.database)'…") {
+                        exportViewModel.startDatabaseExport(database: conn.database)
+                    }
+
+                    Button("Import to Database (Restore)…") {
+                        importViewModel.startDatabaseImport(database: conn.database)
                     }
 
                     Divider()

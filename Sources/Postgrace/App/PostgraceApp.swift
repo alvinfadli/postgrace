@@ -43,6 +43,8 @@ struct PostgraceApp: App {
     @State private var queryViewModel: QueryViewModel
     @State private var dataGridViewModel: DataGridViewModel
     @State private var tabViewModel: WorkspaceTabViewModel
+    @State private var exportViewModel: ExportViewModel
+    @State private var importViewModel: ImportViewModel
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -64,6 +66,8 @@ struct PostgraceApp: App {
         _queryViewModel = State(initialValue: QueryViewModel(postgresService: postgres))
         _dataGridViewModel = State(initialValue: DataGridViewModel(postgresService: postgres))
         _tabViewModel = State(initialValue: WorkspaceTabViewModel(postgresService: postgres))
+        _exportViewModel = State(initialValue: ExportViewModel(postgresService: postgres))
+        _importViewModel = State(initialValue: ImportViewModel(postgresService: postgres))
     }
 
     var body: some Scene {
@@ -74,6 +78,8 @@ struct PostgraceApp: App {
                 .environment(queryViewModel)
                 .environment(dataGridViewModel)
                 .environment(tabViewModel)
+                .environment(exportViewModel)
+                .environment(importViewModel)
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
@@ -100,7 +106,7 @@ struct PostgraceApp: App {
                         connectionViewModel.openEditConnectionForm(for: conn)
                     }
                 }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .keyboardShortcut("e", modifiers: [.command, .option])
                 .disabled(!connectionViewModel.isConnected)
 
                 Button("New Query Tab") {
@@ -115,6 +121,37 @@ struct PostgraceApp: App {
                     }
                 }
                 .keyboardShortcut("w", modifiers: .command)
+                .disabled(!connectionViewModel.isConnected)
+
+                Divider()
+
+                Button("Export Data…") {
+                    if let selectedTable = schemaViewModel.selectedTable {
+                        exportViewModel.startTableExport(
+                            schema: selectedTable.schema,
+                            table: selectedTable.name,
+                            filterClause: dataGridViewModel.filterClause
+                        )
+                    } else if let db = connectionViewModel.selectedConnection?.database {
+                        exportViewModel.startDatabaseExport(database: db)
+                    }
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(!connectionViewModel.isConnected)
+
+                Button("Import Data…") {
+                    if let selectedTable = schemaViewModel.selectedTable {
+                        let cols = schemaViewModel.columns["\(selectedTable.schema).\(selectedTable.name)"]?.map(\.name) ?? []
+                        importViewModel.startTableImport(
+                            schema: selectedTable.schema,
+                            table: selectedTable.name,
+                            tableColumns: cols
+                        )
+                    } else if let db = connectionViewModel.selectedConnection?.database {
+                        importViewModel.startDatabaseImport(database: db)
+                    }
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(!connectionViewModel.isConnected)
             }
 

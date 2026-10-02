@@ -44,6 +44,11 @@ public actor PostgresService {
         currentConfig
     }
 
+    /// The active connection password, if connected.
+    public var activePassword: String? {
+        currentPassword
+    }
+
     /// Connects to the PostgreSQL database using the provided configuration.
     public func connect(config: SavedConnection, password: String) async throws {
         if connection != nil {
@@ -398,5 +403,155 @@ public actor PostgresService {
             if case .string(let str) = firstCell, let count = Int64(str) { return count }
         }
         return 0
+    }
+
+    /// Executes a single raw SQL command (e.g. DDL or transaction command).
+    public func executeRawStatement(_ sql: String) async throws {
+        guard let conn = connection else {
+            throw PostgresServiceError.notConnected
+        }
+        _ = try await conn.query(PostgresQuery(stringLiteral: sql), logger: logger)
+    }
+
+    /// Streams query results row by row to an asynchronous callback without accumulating rows in memory.
+    public func streamQuery(
+        _ sql: String,
+        onRow: @escaping ([ResultColumn], [CellValue]) async throws -> Void
+    ) async throws -> (columns: [ResultColumn], rowCount: Int64, executionTime: Double) {
+        guard let conn = connection else {
+            throw PostgresServiceError.notConnected
+        }
+
+        let start = ContinuousClock.now
+        var resultColumns: [ResultColumn] = []
+        var totalRowCount: Int64 = 0
+
+        do {
+            let rows = try await conn.query(PostgresQuery(stringLiteral: sql), logger: logger)
+
+            for col in rows.columns {
+                resultColumns.append(ResultColumn(
+                    name: col.name,
+                    dataTypeOID: col.dataType.rawValue,
+                    dataTypeName: "\(col.dataType)"
+                ))
+            }
+
+            for try await row in rows {
+                let columns = row.makeRandomAccess()
+                var cellRow: [CellValue] = []
+
+                for cell in columns {
+                    guard cell.bytes != nil else {
+                        cellRow.append(.null)
+                        continue
+                    }
+
+                    switch cell.dataType {
+                    case .bool:
+                        if let v = try? cell.decode(Bool.self) { cellRow.append(.bool(v)) } else { cellRow.append(.null) }
+                    case .oid:
+                        var buffer = cell.bytes
+                        if let u32 = buffer?.readInteger(as: UInt32.self) { cellRow.append(.int(Int64(u32))) } else { cellRow.append(.null) }
+                    case .int2:
+                        if let v = try? cell.decode(Int16.self) { cellRow.append(.int(Int64(v))) } else { cellRow.append(.null) }
+                    case .int4:
+                        if let v = try? cell.decode(Int32.self) { cellRow.append(.int(Int64(v))) } else { cellRow.append(.null) }
+                    case .int8:
+                        if let v = try? cell.decode(Int64.self) { cellRow.append(.int(v)) } else { cellRow.append(.null) }
+                    case .float4:
+                        if let v = try? cell.decode(Float.self) { cellRow.append(.double(Double(v))) } else { cellRow.append(.null) }
+                    case .float8:
+                        if let v = try? cell.decode(Double.self) { cellRow.append(.double(v)) } else { cellRow.append(.null) }
+                    case .numeric:
+                        if let dec = try? cell.decode(Decimal.self) { cellRow.append(.string("\(dec)")) }
+                        else if let v = try? cell.decode(Double.self) { cellRow.append(.double(v)) }
+                        else { cellRow.append(.null) }
+                    case .json, .jsonb:
+                        if let v = try? cell.decode(String.self) { cellRow.append(.json(v)) } else { cellRow.append(.null) }
+                    case .timestamp, .timestamptz:
+                        if let date = try? cell.decode(Date.self) {
+                            let formatter = DateFormatter()
+                            formatter.locale = Locale(identifier: "en_US_POSIX")
+                            formatter.timeZone = cell.dataType == .timestamptz ? TimeZone.current : TimeZone(secondsFromGMT: 0)
+                            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                            cellRow.append(.date(formatter.string(from: date)))
+                        } else if let v = try? cell.decode(String.self) {
+                            cellRow.append(.date(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .date:
+                        if let date = try? cell.decode(Date.self) {
+                            let formatter = DateFormatter()
+                            formatter.locale = Locale(identifier: "en_US_POSIX")
+                            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                            formatter.dateFormat = "yyyy-MM-dd"
+                            cellRow.append(.date(formatter.string(from: date)))
+                        } else if let v = try? cell.decode(String.self) {
+                            cellRow.append(.date(v))
+                        } else {
+                            cellRow.append(.null)
+                        }
+                    case .time, .timetz:
+                        if let v = try? cell.decode(String.self) {
+                            cellRow.append(.date(v))
+                        } else {
+                            var buffer = cell.bytes
+                            if let microseconds = buffer?.readInteger(as: Int64.self) {
+                                let totalSeconds = microseconds / 1_000_000
+                                let hours = totalSeconds / 3600
+                                let mins = (totalSeconds % 3600) / 60
+                                let secs = totalSeconds % 60
+                                cellRow.append(.date(String(format: "%02d:%02d:%02d", hours, mins, secs)))
+                            } else {
+                                cellRow.append(.null)
+                            }
+                        }
+                    case .bytea:
+                        if let v = try? cell.decode(Data.self) { cellRow.append(.data(v)) } else { cellRow.append(.null) }
+                    default:
+                        if let v = try? cell.decode(String.self) { cellRow.append(.string(v)) } else { cellRow.append(.null) }
+                    }
+                }
+
+                try await onRow(resultColumns, cellRow)
+                totalRowCount += 1
+            }
+        } catch is CancellationError {
+            throw PostgresServiceError.queryFailed("Query cancelled by user.")
+        } catch let error as PostgresServiceError {
+            throw error
+        } catch let psqlError as PSQLError {
+            let msg = psqlError.serverInfo?[.message] ?? "\(psqlError)"
+            throw PostgresServiceError.queryFailed(msg)
+        } catch {
+            throw PostgresServiceError.queryFailed(String(describing: error))
+        }
+
+        let elapsed = ContinuousClock.now - start
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000_000
+        return (resultColumns, totalRowCount, seconds)
+    }
+
+    /// Executes a batched multi-row INSERT statement safely with escaped literals.
+    public func executeBatchInsert(schema: String, table: String, columns: [String], rows: [[String]]) async throws -> Int {
+        guard !rows.isEmpty else { return 0 }
+        let colsList = columns.map { $0.pgQuotedIdentifier }.joined(separator: ", ")
+        var valueClauses: [String] = []
+
+        for row in rows {
+            let rowVals = row.map { val -> String in
+                if val.isEmpty {
+                    return "NULL"
+                }
+                return "'\(val.pgEscapedLiteral)'"
+            }.joined(separator: ", ")
+            valueClauses.append("(\(rowVals))")
+        }
+
+        let sql = "INSERT INTO \(schema.pgQuotedIdentifier).\(table.pgQuotedIdentifier) (\(colsList)) VALUES \(valueClauses.joined(separator: ", "));"
+        try await executeRawStatement(sql)
+        return rows.count
     }
 }

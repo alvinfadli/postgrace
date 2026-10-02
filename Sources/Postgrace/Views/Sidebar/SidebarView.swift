@@ -7,6 +7,8 @@ struct SidebarView: View {
     @Environment(SchemaViewModel.self) private var schemaViewModel
     @Environment(WorkspaceTabViewModel.self) private var tabViewModel
     @Environment(QueryViewModel.self) private var queryViewModel
+    @Environment(ExportViewModel.self) private var exportViewModel
+    @Environment(ImportViewModel.self) private var importViewModel
 
     @State private var searchText = ""
     @State private var expandedSchemas: Set<String> = ["public"]
@@ -239,6 +241,10 @@ struct SidebarView: View {
                     schemaForNewTable = schema.name
                 }
                 Divider()
+                Button("Export Schema '\(schema.name)'…") {
+                    exportViewModel.startSchemaExport(schema: schema.name)
+                }
+                Divider()
                 Button("Manage All Schemas") {
                     tabViewModel.openSchemasTab()
                 }
@@ -459,6 +465,10 @@ struct SidebarTableRowView: View {
     let onOpenStructure: () -> Void
     let onQueryInEditor: () -> Void
 
+    @Environment(ExportViewModel.self) private var exportViewModel
+    @Environment(ImportViewModel.self) private var importViewModel
+    @Environment(SchemaViewModel.self) private var schemaViewModel
+
     @State private var isHovered: Bool = false
 
     var body: some View {
@@ -506,6 +516,14 @@ struct SidebarTableRowView: View {
             }
             Button("Open Structure") {
                 onOpenStructure()
+            }
+            Divider()
+            Button("Export Table Data…") {
+                exportViewModel.startTableExport(schema: schema.name, table: table.name)
+            }
+            Button("Import Data to Table…") {
+                let cols = schemaViewModel.columns["\(schema.name).\(table.name)"]?.map(\.name) ?? []
+                importViewModel.startTableImport(schema: schema.name, table: table.name, tableColumns: cols)
             }
             Divider()
             Button("Copy Table Name") {

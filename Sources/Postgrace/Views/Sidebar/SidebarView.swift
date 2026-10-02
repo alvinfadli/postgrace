@@ -439,35 +439,13 @@ struct SidebarView: View {
 
                 // Key/Value Metric Pairs
                 VStack(spacing: 3) {
-                    HStack(spacing: 4) {
-                        Text("Rows")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                        Spacer()
-                        if schemaViewModel.isLoadingRowCount["\(table.schema).\(table.name)"] == true {
-                            ProgressView()
-                                .controlSize(.mini)
-                        } else {
+                    metadataRow(
+                        label: "Rows",
+                        value: {
                             let rc = schemaViewModel.accurateRowCount(for: table)
-                            Text(rc >= 0 ? "\(rc)" : "0")
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundColor(.primary)
-
-                            Button {
-                                Task {
-                                    await schemaViewModel.loadAccurateRowCount(schema: table.schema, table: table.name, forceRefresh: true)
-                                }
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 8))
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Recalculate live accurate row count")
-                        }
-                    }
-
+                            return rc >= 0 ? "\(rc)" : "0"
+                        }()
+                    )
                     metadataRow(label: "Disk Size", value: detail?.totalSize ?? "—")
                     if let idxSize = detail?.indexSize, idxSize != "—" && idxSize != "0 bytes" {
                         metadataRow(label: "Index Size", value: idxSize)

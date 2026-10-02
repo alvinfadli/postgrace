@@ -219,5 +219,97 @@ final class DataTransferTests: XCTestCase {
         config.treatEmptyAsNull = false
         XCTAssertFalse(config.treatEmptyAsNull)
     }
+
+    // MARK: - Multi-Table, Schema & Structure Export Tests
+
+    func testExportTableItemAndScope() {
+        let t1 = ExportTableItem(schema: "public", table: "users")
+        let t2 = ExportTableItem(schema: "public", table: "orders")
+        let t3 = ExportTableItem(schema: "auth", table: "tokens")
+
+        XCTAssertEqual(t1.id, "public.users")
+        XCTAssertEqual(t2.id, "public.orders")
+
+        let multiTablesScope = ExportScope.multipleTables(items: [t1, t2, t3])
+        XCTAssertEqual(multiTablesScope.title, "Tables (3 selected)")
+
+        let singleScope = ExportScope.multipleTables(items: [t1])
+        XCTAssertEqual(singleScope.title, "public.users")
+
+        let multiSchemasScope = ExportScope.multipleSchemas(names: ["public", "auth"])
+        XCTAssertEqual(multiSchemasScope.title, "Schemas (2 selected)")
+    }
+
+    func testExportContentModeAndSuggestedFilenames() {
+        var config = ExportConfiguration(
+            scope: .table(schema: "public", table: "users"),
+            format: .sql
+        )
+        XCTAssertEqual(config.contentMode, .structureAndData)
+        XCTAssertTrue(config.exportStructure)
+        XCTAssertTrue(config.exportData)
+        XCTAssertTrue(config.suggestedFileName.contains("public_users_"))
+        XCTAssertFalse(config.suggestedFileName.contains("_structure_"))
+
+        // Structure Only
+        config.contentMode = .structureOnly
+        XCTAssertTrue(config.exportStructure)
+        XCTAssertFalse(config.exportData)
+        XCTAssertTrue(config.suggestedFileName.contains("public_users_structure_"))
+        XCTAssertTrue(config.suggestedFileName.hasSuffix(".sql"))
+
+        // Data Only
+        config.contentMode = .dataOnly
+        XCTAssertFalse(config.exportStructure)
+        XCTAssertTrue(config.exportData)
+        XCTAssertTrue(config.suggestedFileName.contains("public_users_data_"))
+
+        // Multi-table filename
+        let multiConfig = ExportConfiguration(
+            scope: .multipleTables(items: [
+                ExportTableItem(schema: "public", table: "users"),
+                ExportTableItem(schema: "public", table: "orders")
+            ]),
+            format: .customDump
+        )
+        XCTAssertTrue(multiConfig.suggestedFileName.contains("tables_2_items_"))
+        XCTAssertTrue(multiConfig.suggestedFileName.hasSuffix(".dump"))
+    }
+
+    func testExportViewModelTableSelectionAndFiltering() {
+        let postgresService = PostgresService()
+        let vm = ExportViewModel(postgresService: postgresService)
+
+        let t1 = ExportTableItem(schema: "public", table: "users")
+        let t2 = ExportTableItem(schema: "public", table: "orders")
+        let t3 = ExportTableItem(schema: "analytics", table: "events")
+
+        vm.availableTables = [t1, t2, t3]
+        vm.configuration.selectedTables = [t1]
+
+        XCTAssertTrue(vm.isTableSelected(t1))
+        XCTAssertFalse(vm.isTableSelected(t2))
+
+        // Toggle selection
+        vm.toggleTableSelection(t2)
+        XCTAssertTrue(vm.isTableSelected(t2))
+
+        // Filter search
+        vm.tableSearchFilter = "event"
+        XCTAssertEqual(vm.filteredAvailableTables.count, 1)
+        XCTAssertEqual(vm.filteredAvailableTables.first?.table, "events")
+
+        // Select all filtered
+        vm.selectAllTables()
+        XCTAssertTrue(vm.isTableSelected(t3))
+
+        // Deselect all filtered
+        vm.deselectAllTables()
+        XCTAssertFalse(vm.isTableSelected(t3))
+
+        // Clear filter
+        vm.tableSearchFilter = ""
+        XCTAssertEqual(vm.filteredAvailableTables.count, 3)
+    }
 }
 

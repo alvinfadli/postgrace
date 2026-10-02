@@ -4,6 +4,7 @@ import SwiftUI
 struct SchemaListView: View {
     @Environment(SchemaViewModel.self) private var schemaViewModel
     @Environment(WorkspaceTabViewModel.self) private var tabViewModel
+    @Environment(ExportViewModel.self) private var exportViewModel
 
     @State private var showingCreateSheet: Bool = false
     @State private var schemaToRename: SchemaDetail?
@@ -184,6 +185,10 @@ struct SchemaListView: View {
                                 Menu {
                                     Button("Browse Tables") {
                                         tabViewModel.openTablesTab(schema: schema.name)
+                                    }
+
+                                    Button("Export Schema…") {
+                                        exportViewModel.startSchemaExport(schema: schema.name)
                                     }
 
                                     Divider()

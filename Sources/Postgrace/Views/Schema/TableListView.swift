@@ -5,6 +5,7 @@ struct TableListView: View {
     @Environment(SchemaViewModel.self) private var schemaViewModel
     @Environment(WorkspaceTabViewModel.self) private var tabViewModel
     @Environment(QueryViewModel.self) private var queryViewModel
+    @Environment(ExportViewModel.self) private var exportViewModel
 
     let schema: String
 
@@ -97,6 +98,14 @@ struct TableListView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh Tables in \(schema)")
+
+                // Export Tables in Schema Button
+                Button {
+                    exportViewModel.startSchemaExport(schema: schema)
+                } label: {
+                    Label("Export…", systemImage: "square.and.arrow.up")
+                }
+                .help("Export tables from schema '\(schema)'")
 
                 // + New Table Button (guarded by schema CREATE privilege)
                 Button {
@@ -272,6 +281,10 @@ struct TableListView: View {
                                 Button("Query: SELECT *") {
                                     queryViewModel.queryText = "SELECT * FROM \"\(table.schema)\".\"\(table.name)\" LIMIT 100;"
                                     tabViewModel.openQueryTab()
+                                }
+
+                                Button("Export Table…") {
+                                    exportViewModel.startTableExport(schema: table.schema, table: table.name)
                                 }
 
                                 Divider()

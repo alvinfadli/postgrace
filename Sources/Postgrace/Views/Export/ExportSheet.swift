@@ -48,14 +48,40 @@ struct ExportSheet: View {
             // Body
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // 1. Format Selection
-                    VStack(alignment: .leading, spacing: 8) {
+                    // 1. Export Content Mode (Structure / Data / Both)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("EXPORT CONTENT")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary)
+
+                        Picker("", selection: $vm.configuration.contentMode) {
+                            ForEach(ExportContentMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(vm.isExporting)
+                        .onChange(of: vm.configuration.contentMode) { _, newMode in
+                            if newMode == .structureOnly && (vm.configuration.format == .csv || vm.configuration.format == .json) {
+                                vm.configuration.format = .sql
+                            }
+                        }
+
+                        Text(vm.configuration.contentMode.description)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider().background(PostgraceTheme.border)
+
+                    // 2. Format Selection
+                    VStack(alignment: .leading, spacing: 6) {
                         Text("EXPORT FORMAT")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
 
                         Picker("", selection: $vm.configuration.format) {
-                            ForEach(availableFormats(for: vm.configuration.scope)) { fmt in
+                            ForEach(availableFormats(for: vm.configuration.scope, contentMode: vm.configuration.contentMode)) { fmt in
                                 Text(fmt.rawValue).tag(fmt)
                             }
                         }
@@ -67,11 +93,23 @@ struct ExportSheet: View {
                             .foregroundColor(.secondary)
                     }
 
+                    // 3. Table Selection & Filter (for multiple tables, schemas, or database)
+                    if vm.availableTables.count > 1 || shouldShowTableSelection(for: vm.configuration.scope) {
+                        Divider().background(PostgraceTheme.border)
+                        tableSelectionSection()
+                    }
+
+                    // 4. Row Data Filter (WHERE clause & Limit)
+                    if vm.configuration.contentMode != .structureOnly {
+                        Divider().background(PostgraceTheme.border)
+                        rowFilterSection()
+                    }
+
                     Divider().background(PostgraceTheme.border)
 
-                    // 2. Options per format & scope
+                    // 5. Options per format & scope
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("OPTIONS")
+                        Text("FORMAT OPTIONS")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
 
@@ -85,33 +123,15 @@ struct ExportSheet: View {
                         case .customDump:
                             customDumpOptionsView(config: $vm.configuration)
                         }
-
-                        // Table row limit & WHERE clause preview
-                        if case .table = vm.configuration.scope {
-                            if !vm.configuration.whereClause.isEmpty {
-                                HStack(spacing: 6) {
-                                    Text("Filter:")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(PostgraceTheme.accentSky)
-                                    Text("WHERE \(vm.configuration.whereClause)")
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(2)
-                                }
-                                .padding(8)
-                                .background(PostgraceTheme.surfaceElevated)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                            }
-                        }
                     }
 
-                    // 3. Live Progress Display
+                    // 6. Live Progress Display
                     if vm.isExporting || vm.progress.status != .idle {
                         Divider().background(PostgraceTheme.border)
                         exportProgressSection(progress: vm.progress, isExporting: vm.isExporting)
                     }
 
-                    // 4. Error Message Banner
+                    // 7. Error Message Banner
                     if let err = vm.errorMessage {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -166,6 +186,7 @@ struct ExportSheet: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
                     .tint(PostgraceTheme.accentSky)
+                    .disabled(isExportDisabled)
                 }
             }
             .padding(14)
@@ -177,16 +198,198 @@ struct ExportSheet: View {
                 alignment: .top
             )
         }
-        .frame(width: 520, height: 460)
+        .frame(width: 580, height: 560)
         .background(PostgraceTheme.canvas)
     }
 
-    private func availableFormats(for scope: ExportScope) -> [ExportFormat] {
+    private var isExportDisabled: Bool {
+        if exportViewModel.isExporting { return true }
+        if shouldShowTableSelection(for: exportViewModel.configuration.scope) && exportViewModel.configuration.selectedTables.isEmpty {
+            return true
+        }
+        return false
+    }
+
+    private func shouldShowTableSelection(for scope: ExportScope) -> Bool {
         switch scope {
         case .table:
-            return [.csv, .json, .sql]
-        case .schema, .database:
+            return false
+        case .multipleTables, .schema, .multipleSchemas, .database:
+            return true
+        }
+    }
+
+    private func availableFormats(for scope: ExportScope, contentMode: ExportContentMode) -> [ExportFormat] {
+        if contentMode == .structureOnly {
             return [.sql, .customDump]
+        }
+        switch scope {
+        case .table:
+            return [.csv, .json, .sql, .customDump]
+        case .multipleTables:
+            return [.sql, .customDump, .json]
+        case .schema, .multipleSchemas, .database:
+            return [.sql, .customDump]
+        }
+    }
+
+    // MARK: - Table Selection Subview
+
+    @ViewBuilder
+    private func tableSelectionSection() -> some View {
+        @Bindable var vm = exportViewModel
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("TABLES TO EXPORT")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Text("\(vm.configuration.selectedTables.count) of \(vm.availableTables.count) selected")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+
+            // Search filter & bulk toggles
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    TextField("Filter tables…", text: $vm.tableSearchFilter)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                    if !vm.tableSearchFilter.isEmpty {
+                        Button {
+                            vm.tableSearchFilter = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
+
+                Button("Select All") {
+                    vm.selectAllTables()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundColor(PostgraceTheme.accentSky)
+
+                Text("•").foregroundColor(PostgraceTheme.border)
+
+                Button("Deselect All") {
+                    vm.deselectAllTables()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundColor(PostgraceTheme.accentSky)
+            }
+
+            // Table checklist
+            if vm.isLoadingTables && vm.availableTables.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading tables…")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(20)
+            } else if vm.filteredAvailableTables.isEmpty {
+                Text("No matching tables found.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(20)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(vm.filteredAvailableTables) { item in
+                            let isSelected = vm.isTableSelected(item)
+                            Button {
+                                vm.toggleTableSelection(item)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                                        .foregroundColor(isSelected ? PostgraceTheme.accentSky : .secondary)
+                                        .font(.system(size: 12))
+
+                                    Text(item.schema)
+                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(PostgraceTheme.surface)
+                                        .clipShape(RoundedRectangle(cornerRadius: 3))
+
+                                    Text(item.table)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.primary)
+
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(isSelected ? PostgraceTheme.accentSky.opacity(0.08) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(4)
+                }
+                .frame(maxHeight: 140)
+                .background(PostgraceTheme.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                )
+            }
+        }
+    }
+
+    // MARK: - Row Filter Subview
+
+    @ViewBuilder
+    private func rowFilterSection() -> some View {
+        @Bindable var vm = exportViewModel
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text("DATA FILTER")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                Text("WHERE")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(PostgraceTheme.accentSky)
+
+                TextField("Optional filter clause (e.g. status = 'active' AND created_at >= '2025-01-01')", text: $vm.configuration.whereClause)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+            }
         }
     }
 
@@ -255,12 +458,6 @@ struct ExportSheet: View {
     @ViewBuilder
     private func customDumpOptionsView(config: Binding<ExportConfiguration>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Export Table Schema (DDL)", isOn: config.exportStructure)
-                .font(.system(size: 11))
-
-            Toggle("Export Table Data", isOn: config.exportData)
-                .font(.system(size: 11))
-
             Toggle("Include clean commands (--clean --if-exists)", isOn: config.cleanBeforeRestore)
                 .font(.system(size: 11))
         }

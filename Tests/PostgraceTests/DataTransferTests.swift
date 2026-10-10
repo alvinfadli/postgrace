@@ -17,6 +17,37 @@ final class DataTransferTests: XCTestCase {
         XCTAssertEqual(csv, "102,\"Bob, Jr.\",\"Software \"\"Lead\"\"\",\"Line 1\nLine 2\"")
     }
 
+    func testCSVFormulaInjectionDefense() {
+        // Formulas must be escaped with single-quote prefix
+        let dangerousRow = ["=cmd|'/C calc'!A0", "@SUM(A1:A5)", "+cmd", "-calc", "-42", "+3.14", "Normal"]
+        let csv = CSVHandler.encodeRow(dangerousRow)
+        // "=cmd..." starts with =, must be prefixed with '
+        XCTAssertTrue(csv.contains("'=cmd|'/C calc'!A0"))
+        // "@SUM..." starts with @, must be prefixed with '
+        XCTAssertTrue(csv.contains("'@SUM(A1:A5)"))
+        // "+cmd" is not a number, must be prefixed with '
+        XCTAssertTrue(csv.contains("'+cmd"))
+        // "-calc" is not a number, must be prefixed with '
+        XCTAssertTrue(csv.contains("'-calc"))
+        // "-42" is a valid number, must NOT be altered
+        XCTAssertTrue(csv.contains("-42"))
+        XCTAssertFalse(csv.contains("'-42"))
+        // "+3.14" is a valid number, must NOT be altered
+        XCTAssertTrue(csv.contains("+3.14"))
+        XCTAssertFalse(csv.contains("'+3.14"))
+    }
+
+    func testSQLLiteralNULByteSanitization() {
+        let dirty = "admin\0' OR 1=1 --"
+        let pgClean = dirty.pgEscapedLiteral
+        XCTAssertFalse(pgClean.contains("\0"))
+        XCTAssertEqual(pgClean, "admin'' OR 1=1 --")
+
+        let myClean = dirty.mysqlEscapedLiteral
+        XCTAssertFalse(myClean.contains("\0"))
+        XCTAssertEqual(myClean, "admin'' OR 1=1 --")
+    }
+
     func testCSVParsingLineWithQuotesAndCommas() {
         let line = "102,\"Bob, Jr.\",\"Software \"\"Lead\"\"\",\"Line 1\nLine 2\""
         let parsed = CSVHandler.parseLine(line)
@@ -206,6 +237,34 @@ final class DataTransferTests: XCTestCase {
         let statements = SQLScriptSplitter.split(sql)
         XCTAssertEqual(statements.count, 1)
         XCTAssertTrue(statements[0].contains("$body$"))
+    }
+
+    func testSQLScriptSplitterSpansAndCursorDetection() {
+        let sql = "SELECT 1;\nSELECT 2;\nSELECT 3;"
+        let spans = SQLScriptSplitter.splitWithSpans(sql)
+        XCTAssertEqual(spans.count, 3)
+        XCTAssertEqual(spans[0].statement, "SELECT 1")
+        XCTAssertEqual(spans[1].statement, "SELECT 2")
+        XCTAssertEqual(spans[2].statement, "SELECT 3")
+
+        // Spans should have accurate NSRanges
+        XCTAssertEqual(spans[0].range.location, 0)
+        XCTAssertEqual(spans[0].range.length, 8)
+
+        // Statement at cursor inside statement 1
+        let stmt1 = SQLScriptSplitter.statement(at: 4, in: sql)
+        XCTAssertEqual(stmt1?.statement, "SELECT 1")
+
+        // Statement at cursor inside statement 2
+        let stmt2 = SQLScriptSplitter.statement(at: 12, in: sql)
+        XCTAssertEqual(stmt2?.statement, "SELECT 2")
+
+        // Statement at cursor inside statement 3
+        let stmt3 = SQLScriptSplitter.statement(at: 22, in: sql)
+        XCTAssertEqual(stmt3?.statement, "SELECT 3")
+
+        // Empty sql string returns nil
+        XCTAssertNil(SQLScriptSplitter.statement(at: 0, in: ""))
     }
 
     func testImportConfigurationTreatEmptyAsNull() {

@@ -37,10 +37,12 @@ struct ContentView: View {
                     StatusBarView()
                 }
                 .background(PostgraceTheme.canvas)
+                .transition(.opacity)
             } else {
-                // Connection Hub / Launcher (Disconnected)
-                ConnectionHubView()
+                // Full-Page Connection Hub (Disconnected)
+                FullPageConnectionHubView()
                     .background(PostgraceTheme.canvas)
+                    .transition(.opacity)
             }
 
             // Error banner overlay
@@ -51,8 +53,10 @@ struct ContentView: View {
                 .padding(.top, 50)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: connectionViewModel.isConnected)
         .background(
             WindowAccessor { window in
+                window.appearance = NSAppearance(named: .darkAqua)
                 window.titlebarAppearsTransparent = true
                 window.titleVisibility = .hidden
                 window.styleMask.insert(.fullSizeContentView)
@@ -61,10 +65,16 @@ struct ContentView: View {
             }
         )
         .ignoresSafeArea()
-        .sheet(isPresented: $connVM.showingConnectionForm) {
+        .sheet(isPresented: Binding(
+            get: { connVM.isConnected && connVM.showingConnectionForm },
+            set: { connVM.showingConnectionForm = $0 }
+        )) {
             ConnectionFormView(connection: nil)
         }
-        .sheet(isPresented: $connVM.showingEditForm) {
+        .sheet(isPresented: Binding(
+            get: { connVM.isConnected && connVM.showingEditForm },
+            set: { connVM.showingEditForm = $0 }
+        )) {
             ConnectionFormView(connection: connectionViewModel.connectionToEdit)
         }
         .sheet(isPresented: $exportVM.isShowingSheet) {

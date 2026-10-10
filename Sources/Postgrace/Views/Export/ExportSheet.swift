@@ -54,12 +54,11 @@ struct ExportSheet: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
 
-                        Picker("", selection: $vm.configuration.contentMode) {
-                            ForEach(ExportContentMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
+                        PostgraceSegmentedControl(
+                            selection: $vm.configuration.contentMode,
+                            items: ExportContentMode.allCases,
+                            titleFor: { $0.rawValue }
+                        )
                         .disabled(vm.isExporting)
                         .onChange(of: vm.configuration.contentMode) { _, newMode in
                             if newMode == .structureOnly && (vm.configuration.format == .csv || vm.configuration.format == .json) {
@@ -80,12 +79,11 @@ struct ExportSheet: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
 
-                        Picker("", selection: $vm.configuration.format) {
-                            ForEach(availableFormats(for: vm.configuration.scope, contentMode: vm.configuration.contentMode)) { fmt in
-                                Text(fmt.rawValue).tag(fmt)
-                            }
-                        }
-                        .pickerStyle(.segmented)
+                        PostgraceSegmentedControl(
+                            selection: $vm.configuration.format,
+                            items: availableFormats(for: vm.configuration.scope, contentMode: vm.configuration.contentMode),
+                            titleFor: { $0.rawValue }
+                        )
                         .disabled(vm.isExporting)
 
                         Text(vm.configuration.format.description)
@@ -125,13 +123,19 @@ struct ExportSheet: View {
                         }
                     }
 
-                    // 6. Live Progress Display
+                    // 6. PostgreSQL Advanced Options
+                    if vm.configuration.format == .sql || vm.configuration.format == .customDump {
+                        Divider().background(PostgraceTheme.border)
+                        postgresAdvancedOptionsSection(config: $vm.configuration)
+                    }
+
+                    // 7. Live Progress Display
                     if vm.isExporting || vm.progress.status != .idle {
                         Divider().background(PostgraceTheme.border)
                         exportProgressSection(progress: vm.progress, isExporting: vm.isExporting)
                     }
 
-                    // 7. Error Message Banner
+                    // 8. Error Message Banner
                     if let err = vm.errorMessage {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -153,39 +157,28 @@ struct ExportSheet: View {
                 Spacer()
 
                 if case .completed = vm.progress.status {
-                    Button("Done") {
+                    PostgraceButton("Done", variant: .primary) {
                         vm.closeSheet()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
                 } else if vm.isExporting {
-                    Button("Cancel Export") {
+                    PostgraceButton("Cancel Export", variant: .destructive) {
                         vm.cancelExport()
                     }
-                    .buttonStyle(.bordered)
-                    .foregroundColor(PostgraceTheme.destructiveRed)
 
-                    ProgressView()
-                        .controlSize(.small)
+                    PostgraceSpinner(size: .small)
                         .padding(.leading, 8)
                 } else {
-                    Button("Cancel") {
+                    PostgraceButton("Cancel", variant: .secondary) {
                         vm.closeSheet()
                     }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
 
-                    Button {
+                    PostgraceButton(
+                        "Export To File…",
+                        icon: "square.and.arrow.down",
+                        variant: .primary
+                    ) {
                         vm.promptSaveAndExport()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "square.and.arrow.down")
-                            Text("Export To File…")
-                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .tint(PostgraceTheme.accentSky)
                     .disabled(isExportDisabled)
                 }
             }
@@ -252,6 +245,37 @@ struct ExportSheet: View {
                     .foregroundColor(.secondary)
             }
 
+            // Schema filter chips when multiple schemas are present
+            if vm.availableSchemas.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(vm.availableSchemas, id: \.self) { schema in
+                            let isSelected = vm.isSchemaSelected(schema)
+                            Button {
+                                vm.toggleSchemaSelection(schema)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 10))
+                                    Text(schema)
+                                        .font(.system(size: 11, design: .monospaced))
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(isSelected ? PostgraceTheme.accentSky.opacity(0.12) : PostgraceTheme.surfaceElevated)
+                                .foregroundColor(isSelected ? PostgraceTheme.accentSky : .secondary)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(isSelected ? PostgraceTheme.accentSky.opacity(0.3) : PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
             // Search filter & bulk toggles
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
@@ -301,7 +325,7 @@ struct ExportSheet: View {
             // Table checklist
             if vm.isLoadingTables && vm.availableTables.isEmpty {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    PostgraceSpinner(size: .small)
                     Text("Loading tables…")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
@@ -378,17 +402,11 @@ struct ExportSheet: View {
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(PostgraceTheme.accentSky)
 
-                TextField("Optional filter clause (e.g. status = 'active' AND created_at >= '2025-01-01')", text: $vm.configuration.whereClause)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11, design: .monospaced))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(PostgraceTheme.surfaceElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-                    )
+                PostgraceTextField(
+                    "Optional filter clause (e.g. status = 'active' AND created_at >= '2025-01-01')",
+                    text: $vm.configuration.whereClause,
+                    isMonospaced: true
+                )
             }
         }
     }
@@ -398,25 +416,28 @@ struct ExportSheet: View {
     @ViewBuilder
     private func csvOptionsView(config: Binding<ExportConfiguration>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Include Header Row (Column Names)", isOn: config.csvIncludeHeaders)
-                .font(.system(size: 11))
-
-            Toggle("Include UTF-8 BOM (for Microsoft Excel)", isOn: config.csvIncludeBOM)
-                .font(.system(size: 11))
+            PostgraceCheckbox("Include Header Row (Column Names)", isOn: config.csvIncludeHeaders)
+            PostgraceCheckbox("Include UTF-8 BOM (for Microsoft Excel)", isOn: config.csvIncludeBOM)
 
             HStack(spacing: 8) {
                 Text("Delimiter:")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
-                Picker("", selection: config.csvDelimiter) {
-                    Text("Comma (,)").tag(",")
-                    Text("Tab (\\t)").tag("\t")
-                    Text("Semicolon (;)").tag(";")
-                    Text("Pipe (|)").tag("|")
-                }
-                .frame(width: 140)
-                .controlSize(.small)
+                PostgracePicker(
+                    selection: config.csvDelimiter,
+                    items: [",", "\t", ";", "|"],
+                    titleFor: { d in
+                        switch d {
+                        case ",": return "Comma (,)"
+                        case "\t": return "Tab (\\t)"
+                        case ";": return "Semicolon (;)"
+                        case "|": return "Pipe (|)"
+                        default: return d
+                        }
+                    }
+                )
+                .frame(width: 150)
             }
         }
     }
@@ -435,22 +456,19 @@ struct ExportSheet: View {
     @ViewBuilder
     private func sqlOptionsView(config: Binding<ExportConfiguration>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Include DROP TABLE IF EXISTS statement", isOn: config.sqlIncludeDropTable)
-                .font(.system(size: 11))
+            PostgraceCheckbox("Include DROP TABLE IF EXISTS statement", isOn: config.sqlIncludeDropTable)
 
             HStack(spacing: 8) {
                 Text("Rows per INSERT batch:")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
-                Picker("", selection: config.sqlBatchSize) {
-                    Text("100 rows").tag(100)
-                    Text("200 rows").tag(200)
-                    Text("500 rows").tag(500)
-                    Text("1,000 rows").tag(1000)
-                }
+                PostgracePicker(
+                    selection: config.sqlBatchSize,
+                    items: [100, 200, 500, 1000],
+                    titleFor: { "\($0) rows" }
+                )
                 .frame(width: 140)
-                .controlSize(.small)
             }
         }
     }
@@ -458,8 +476,49 @@ struct ExportSheet: View {
     @ViewBuilder
     private func customDumpOptionsView(config: Binding<ExportConfiguration>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Include clean commands (--clean --if-exists)", isOn: config.cleanBeforeRestore)
-                .font(.system(size: 11))
+            PostgraceCheckbox("Include clean commands (--clean --if-exists)", isOn: config.cleanBeforeRestore)
+
+            HStack(spacing: 8) {
+                Text("Compression level:")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+
+                PostgracePicker(
+                    selection: config.postgresOptions.customDumpCompressionLevel,
+                    items: [1, 3, 6, 9],
+                    titleFor: { "Level \($0)\($0 == 6 ? " (Default)" : "")" }
+                )
+                .frame(width: 160)
+            }
+        }
+    }
+
+    // MARK: - PostgreSQL Advanced Options
+
+    @ViewBuilder
+    private func postgresAdvancedOptionsSection(config: Binding<ExportConfiguration>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("POSTGRESQL ADVANCED OPTIONS")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+
+            PostgraceCheckbox("Clean before restore (DROP ... IF EXISTS)", isOn: config.postgresOptions.cleanBeforeRestore)
+            PostgraceCheckbox("Wrap in single transaction (BEGIN ... COMMIT)", isOn: config.postgresOptions.singleTransaction)
+            PostgraceCheckbox("Include CREATE SCHEMA declaration", isOn: config.postgresOptions.includeSchemaCreate)
+            PostgraceCheckbox("Set search_path header", isOn: config.postgresOptions.setPathHeader)
+
+            if isSingleSchemaOrTableScope(config.wrappedValue.scope) {
+                PostgraceCheckbox("Include external cross-schema foreign keys", isOn: config.postgresOptions.includeExternalForeignKeys)
+            }
+        }
+    }
+
+    private func isSingleSchemaOrTableScope(_ scope: ExportScope) -> Bool {
+        switch scope {
+        case .table, .schema:
+            return true
+        default:
+            return false
         }
     }
 
@@ -487,9 +546,15 @@ struct ExportSheet: View {
             }
 
             if let fraction = progress.fractionCompleted {
-                ProgressView(value: fraction)
+                PostgraceProgressBar(progress: fraction, height: 6, showPercentLabel: true)
             } else if isExporting {
-                ProgressView()
+                HStack(spacing: 8) {
+                    PostgraceSpinner(size: .small)
+                    Text("Streaming data transfer in progress…")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
             }
 
             HStack {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a specific table to export.
-public struct ExportTableItem: Equatable, Hashable, Identifiable {
+public struct ExportTableItem: Equatable, Hashable, Identifiable, Sendable {
     public var id: String { "\(schema).\(table)" }
     public var schema: String
     public var table: String
@@ -12,8 +12,21 @@ public struct ExportTableItem: Equatable, Hashable, Identifiable {
     }
 }
 
+/// Advanced options specifically for PostgreSQL exports.
+public struct PostgresExportOptions: Equatable, Sendable {
+    public var includeSchemaCreate: Bool = true
+    public var setPathHeader: Bool = true
+    public var cleanBeforeRestore: Bool = true
+    public var singleTransaction: Bool = true
+    public var includeExternalForeignKeys: Bool = true
+    public var customDumpCompressionLevel: Int = 6 // 1-9
+    public var excludedSchemas: Set<String> = []
+
+    public init() {}
+}
+
 /// Defines the scope of the export operation.
-public enum ExportScope: Equatable, Hashable {
+public enum ExportScope: Equatable, Hashable, Sendable {
     case table(schema: String, table: String)
     case multipleTables(items: [ExportTableItem])
     case schema(name: String, tables: [String] = [])
@@ -37,7 +50,7 @@ public enum ExportScope: Equatable, Hashable {
 }
 
 /// Supported export content modes (Structure, Data, or Both).
-public enum ExportContentMode: String, CaseIterable, Identifiable {
+public enum ExportContentMode: String, CaseIterable, Identifiable, Sendable {
     case structureAndData = "Structure and Data"
     case structureOnly = "Structure Only (DDL)"
     case dataOnly = "Data Only"
@@ -57,7 +70,7 @@ public enum ExportContentMode: String, CaseIterable, Identifiable {
 }
 
 /// Supported export file formats.
-public enum ExportFormat: String, CaseIterable, Identifiable {
+public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
     case csv = "CSV"
     case json = "JSON"
     case sql = "SQL Script"
@@ -89,7 +102,7 @@ public enum ExportFormat: String, CaseIterable, Identifiable {
 }
 
 /// JSON export flavor.
-public enum JSONExportFlavor: String, CaseIterable, Identifiable {
+public enum JSONExportFlavor: String, CaseIterable, Identifiable, Sendable {
     case array = "Standard JSON Array"
     case ndjson = "Newline Delimited JSON (NDJSON)"
 
@@ -97,7 +110,7 @@ public enum JSONExportFlavor: String, CaseIterable, Identifiable {
 }
 
 /// Configuration parameters for an export task.
-public struct ExportConfiguration: Equatable {
+public struct ExportConfiguration: Equatable, Sendable {
     public var scope: ExportScope
     public var format: ExportFormat
     public var destinationURL: URL?
@@ -118,6 +131,9 @@ public struct ExportConfiguration: Equatable {
     public var jsonFlavor: JSONExportFlavor = .array
     public var sqlBatchSize: Int = 200
     public var sqlIncludeDropTable: Bool = false
+
+    // Advanced PostgreSQL options
+    public var postgresOptions: PostgresExportOptions = PostgresExportOptions()
 
     // Schema/Database export options
     public var exportStructure: Bool {
@@ -142,7 +158,10 @@ public struct ExportConfiguration: Equatable {
         }
     }
 
-    public var cleanBeforeRestore: Bool = true
+    public var cleanBeforeRestore: Bool {
+        get { postgresOptions.cleanBeforeRestore }
+        set { postgresOptions.cleanBeforeRestore = newValue }
+    }
 
     public init(scope: ExportScope, format: ExportFormat = .csv, destinationURL: URL? = nil) {
         self.scope = scope

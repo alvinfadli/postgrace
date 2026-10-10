@@ -30,7 +30,7 @@ struct WorkspaceToolbarView: View {
                 // Server Pill with Quick Switch & Edit
                 Menu {
                     Section("Active Server") {
-                        Label("\(conn.name) (\(conn.host):\(conn.port))", systemImage: "server.rack")
+                        Label("\(conn.name) • \(conn.engine.rawValue) (\(conn.host):\(conn.port))", systemImage: conn.engine.iconName)
                         Button {
                             connectionViewModel.openEditConnectionForm(for: conn)
                         } label: {
@@ -55,7 +55,8 @@ struct WorkspaceToolbarView: View {
                                         HStack {
                                             Text(otherConn.name)
                                             Spacer()
-                                            Text("\(otherConn.host):\(otherConn.port)")
+                                            Text("\(otherConn.engine.rawValue) • \(otherConn.host):\(otherConn.port)")
+                                                .foregroundColor(.secondary)
                                         }
                                     }
                                 }
@@ -72,9 +73,7 @@ struct WorkspaceToolbarView: View {
                     }
 
                     Button {
-                        Task {
-                            await connectionViewModel.disconnect()
-                        }
+                        handleDisconnect()
                     } label: {
                         Label("Manage Connections (Hub)...", systemImage: "rectangle.stack")
                     }
@@ -83,6 +82,9 @@ struct WorkspaceToolbarView: View {
                         Circle()
                             .fill(tagColor(conn.colorTag))
                             .frame(width: 7, height: 7)
+                        Image(systemName: conn.engine.iconName)
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
                         Text(conn.name)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.primary)
@@ -256,14 +258,15 @@ struct WorkspaceToolbarView: View {
 
             Spacer()
 
+            // Ambient Safe Mode Status Badge (FR-2.1)
+            safeModeBadge
+
             // Right: User Privilege Pill Badge
             UserPrivilegeBadgeView()
 
             // Disconnect Action Button
             Button {
-                Task {
-                    await connectionViewModel.disconnect()
-                }
+                handleDisconnect()
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "power")
@@ -353,5 +356,77 @@ struct WorkspaceToolbarView: View {
         case .purple: return PostgraceTheme.purpleSuper
         case .none: return PostgraceTheme.emeraldRw
         }
+    }
+
+    @ViewBuilder
+    private var safeModeBadge: some View {
+        if let conn = connectionViewModel.selectedConnection {
+            if conn.isSafeModeLocked {
+                // Remote: Permanently Locked Safe Mode
+                HStack(spacing: 5) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(PostgraceTheme.destructiveRedText)
+                    Text("Safe Mode")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(PostgraceTheme.destructiveRedText)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(PostgraceTheme.destructiveRedMuted)
+                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
+                .help("Safe Mode is permanently locked for remote connections to protect against accidental changes.")
+            } else if conn.isSafeModeEffective {
+                // Localhost: Safe Mode manually turned ON
+                Button {
+                    connectionViewModel.toggleSafeMode()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(PostgraceTheme.accentSageText)
+                        Text("Safe Mode: ON")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(PostgraceTheme.accentSageText)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(PostgraceTheme.accentSageMuted)
+                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help("Safe Mode is ON for localhost. Click to turn OFF.")
+            } else {
+                // Localhost: Safe Mode OFF (Default)
+                Button {
+                    connectionViewModel.toggleSafeMode()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "shield")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text("Localhost (Safe: OFF)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous)
+                            .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Safe Mode is OFF for localhost. Click to turn ON.")
+            }
+        }
+    }
+
+    private func handleDisconnect() {
+        connectionViewModel.disconnect()
+        schemaViewModel.clear()
+        tabViewModel.resetTabs()
     }
 }

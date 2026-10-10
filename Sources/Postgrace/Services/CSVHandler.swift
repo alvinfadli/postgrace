@@ -6,23 +6,40 @@ public enum CSVHandler {
     // MARK: - CSV Encoding
 
     /// Encodes an array of cell string values into a single RFC 4180 CSV line.
-    public static func encodeRow(_ values: [String], delimiter: String = ",") -> String {
-        let escaped = values.map { escapeField($0, delimiter: delimiter) }
+    public static func encodeRow(_ values: [String], delimiter: String = ",", sanitizeFormulas: Bool = true) -> String {
+        let escaped = values.map { escapeField($0, delimiter: delimiter, sanitizeFormulas: sanitizeFormulas) }
         return escaped.joined(separator: delimiter)
     }
 
-    /// Escapes an individual field according to RFC 4180 rules.
-    public static func escapeField(_ value: String, delimiter: String = ",") -> String {
-        let needsQuotes = value.contains(delimiter) ||
-            value.contains("\"") ||
-            value.contains("\n") ||
-            value.contains("\r")
+    /// Escapes an individual field according to RFC 4180 rules, with optional formula injection defense (CWE-1236).
+    public static func escapeField(_ value: String, delimiter: String = ",", sanitizeFormulas: Bool = true) -> String {
+        var processed = value
+        if sanitizeFormulas && isFormulaTrigger(processed) {
+            processed = "'" + processed
+        }
+
+        let needsQuotes = processed.contains(delimiter) ||
+            processed.contains("\"") ||
+            processed.contains("\n") ||
+            processed.contains("\r")
 
         if needsQuotes {
-            let doubledQuotes = value.replacingOccurrences(of: "\"", with: "\"\"")
+            let doubledQuotes = processed.replacingOccurrences(of: "\"", with: "\"\"")
             return "\"\(doubledQuotes)\""
         }
-        return value
+        return processed
+    }
+
+    /// Detects potential spreadsheet formula execution triggers (=, @, \t, \r, and unparsed +, -).
+    public static func isFormulaTrigger(_ value: String) -> Bool {
+        guard let first = value.first else { return false }
+        if first == "=" || first == "@" || first == "\t" || first == "\r" {
+            return true
+        }
+        if (first == "+" || first == "-") && Double(value) == nil {
+            return true
+        }
+        return false
     }
 
     // MARK: - CSV Parsing

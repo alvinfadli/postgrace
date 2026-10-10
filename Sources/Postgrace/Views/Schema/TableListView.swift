@@ -108,15 +108,13 @@ struct TableListView: View {
                 .help("Export tables from schema '\(schema)'")
 
                 // + New Table Button (guarded by schema CREATE privilege)
-                Button {
+                PostgraceButton(
+                    "New Table",
+                    icon: "plus",
+                    variant: .primary
+                ) {
                     showingCreateTableSheet = true
-                } label: {
-                    Label("New Table", systemImage: "plus")
-                        .fontWeight(.medium)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(PostgraceTheme.accentSky)
-                .controlSize(.regular)
                 .disabled(!canCreateTableInSchema)
                 .help(canCreateTableInSchema ? "Create new table in \(schema)" : "User '\(currentUser)' lacks CREATE privilege on schema '\(schema)'")
             }
@@ -176,10 +174,9 @@ struct TableListView: View {
                         .font(.title3)
                         .foregroundColor(.secondary)
                     if canCreateTableInSchema {
-                        Button("Create First Table") {
+                        PostgraceButton("Create First Table", icon: "plus", variant: .primary) {
                             showingCreateTableSheet = true
                         }
-                        .buttonStyle(.borderedProminent)
                     } else {
                         Text("You do not have permission to create tables in this schema.")
                             .font(.caption)
@@ -239,20 +236,20 @@ struct TableListView: View {
                             if table.isOwner {
                                 Text("OWNER")
                                     .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.purple)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color.purple.opacity(0.15))
-                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                                    .foregroundColor(PostgraceTheme.purpleSuperText)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(PostgraceTheme.purpleSuperMuted)
+                                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
                             }
                             if table.canInsert {
                                 Text("WRITE")
                                     .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color.green.opacity(0.15))
-                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                                    .foregroundColor(PostgraceTheme.accentSageText)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(PostgraceTheme.accentSageMuted)
+                                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
                             }
                         }
                     }
@@ -380,10 +377,10 @@ struct TableListView: View {
 
     private func colorForTableType(_ type: TableType) -> Color {
         switch type {
-        case .table: return PostgraceTheme.accentSky
+        case .table: return PostgraceTheme.accentSage
         case .view: return PostgraceTheme.purpleSuper
-        case .materializedView: return Color.indigo
-        case .foreignTable: return PostgraceTheme.amberRo
+        case .materializedView: return PostgraceTheme.purpleSuper
+        case .foreignTable: return PostgraceTheme.pastelSky
         }
     }
 
@@ -410,21 +407,20 @@ struct TableListView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("New Table Name")
                     .font(.caption.bold())
-                TextField("New Name", text: $newTableName)
-                    .textFieldStyle(.roundedBorder)
+                PostgraceTextField("New Name", text: $newTableName)
             }
 
             Spacer()
 
             HStack {
-                Button("Cancel") {
+                PostgraceButton("Cancel", variant: .secondary) {
                     tableToRename = nil
                 }
                 .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                Button("Rename Table") {
+                PostgraceButton("Rename Table", variant: .primary) {
                     let oldName = table.name
                     let target = newTableName.trimmingCharacters(in: .whitespacesAndNewlines)
                     tableToRename = nil
@@ -436,7 +432,6 @@ struct TableListView: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(newTableName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newTableName == table.name)
             }

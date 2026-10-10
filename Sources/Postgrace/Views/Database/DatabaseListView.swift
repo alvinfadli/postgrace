@@ -51,53 +51,31 @@ struct DatabaseListView: View {
                 Spacer()
 
                 // Filter Field
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                        .font(.caption2)
-                    TextField("Filter databases…", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.caption)
-                        .frame(width: 160)
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .font(.caption2)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(PostgraceTheme.surfaceElevated)
-                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
-                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-                )
+                PostgraceSearchField("Filter databases…", text: $searchText)
+                    .frame(width: 200)
 
                 // Refresh Button
-                Button {
+                PostgraceIconButton(
+                    icon: "arrow.clockwise",
+                    tooltip: "Refresh Databases List",
+                    variant: .standard,
+                    size: 26
+                ) {
                     Task {
                         let dbs = await schemaViewModel.loadAvailableDatabases()
                         connectionViewModel.availableDatabases = dbs
                     }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
                 }
-                .help("Refresh Databases List")
 
                 // + New Database Button
-                Button {
+                PostgraceButton(
+                    "New Database",
+                    icon: "plus",
+                    variant: .primary,
+                    size: .small
+                ) {
                     showingCreateSheet = true
-                } label: {
-                    Label("New Database", systemImage: "plus")
-                        .fontWeight(.medium)
                 }
-                .buttonStyle(.borderedProminent)
                 .disabled(!schemaViewModel.canCreateDatabase)
                 .help(schemaViewModel.canCreateDatabase ? "Create a new database" : "Requires CREATEDB or SUPERUSER privilege")
             }

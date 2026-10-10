@@ -1,101 +1,133 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Postgrace Modern Flat Design System & Color Tokens
+// MARK: - Postgrace White-First Pastel Atelier Design System & Color Tokens
 
 public enum PostgraceTheme {
     
-    // MARK: - Dynamic Adaptive Colors (Modern Flat)
+    // MARK: - Dynamic Adaptive Colors (White-First Pastel Atelier)
     
-    /// Main application window and full-bleed data canvas background (#111215 Dark / #FFFFFF Light)
+    /// Main application window and full-bleed data canvas background (#FFFFFF Light / #181A1E Dark)
     public static let canvas = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#111215") : NSColor(hex: "#FFFFFF")
+        appearance.isDark ? NSColor(hex: "#181A1E") : NSColor(hex: "#FFFFFF")
     }))
     
-    /// Sidebar, toolbar chrome, and secondary surfaces (#16181D Dark / #F8FAFC Light)
+    /// Sidebar, toolbar chrome, and secondary surfaces (#F8FAFC Light / #1E2127 Dark)
     public static let surface = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#16181D") : NSColor(hex: "#F8FAFC")
+        appearance.isDark ? NSColor(hex: "#1E2127") : NSColor(hex: "#F8FAFC")
     }))
     
-    /// Elevated cards, popovers, active tabs, and modals (#1E2128 Dark / #F1F5F9 Light)
+    /// Elevated cards, popovers, active tabs, and modals (#FFFFFF Light / #262A32 Dark)
     public static let surfaceElevated = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#1E2128") : NSColor(hex: "#F1F5F9")
+        appearance.isDark ? NSColor(hex: "#262A32") : NSColor(hex: "#FFFFFF")
     }))
     
-    /// Hover surface tint for interactive list items & buttons (#252830 Dark / #E2E8F0 Light)
+    /// Hover surface tint for interactive list items & buttons (#F1F5F9 Light / #2D323C Dark)
     public static let surfaceHover = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#252830") : NSColor(hex: "#E2E8F0")
+        appearance.isDark ? NSColor(hex: "#2D323C") : NSColor(hex: "#F1F5F9")
     }))
     
-    /// Crisp flat hairline borders and structural dividers (#2B2F38 Dark / #E2E8F0 Light)
+    /// Crisp flat hairline borders and structural dividers (#E2E8F0 Light / #333844 Dark)
     public static let border = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#2B2F38") : NSColor(hex: "#E2E8F0")
+        appearance.isDark ? NSColor(hex: "#333844") : NSColor(hex: "#E2E8F0")
     }))
     
-    /// Subtle flat sub-dividers (#22252C Dark / #F1F5F9 Light)
+    /// Subtle flat sub-dividers (#EEF2F6 Light / #2A2E38 Dark)
     public static let borderSubtle = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#22252C") : NSColor(hex: "#F1F5F9")
+        appearance.isDark ? NSColor(hex: "#2A2E38") : NSColor(hex: "#EEF2F6")
     }))
     
-    // MARK: - Semantic Modern Flat Accent Tokens
+    // MARK: - Semantic Crisp Pastel Accent Tokens (Zero Neon, Confident & Sharp)
     
-    /// Primary Brand Flat Emerald Green (#10B981 Dark / #059669 Light)
-    public static let accentEmerald = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#10B981") : NSColor(hex: "#059669")
+    /// Signature Crisp Botanical Sage Green Accent (#3B7A57 Light / #5E9E7A Dark)
+    public static let accentSage = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#5E9E7A") : NSColor(hex: "#3B7A57")
     }))
     
-    public static let accentEmeraldMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#10B981").withAlphaComponent(0.12) : NSColor(hex: "#059669").withAlphaComponent(0.10)
+    public static let accentSageMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#5E9E7A").withAlphaComponent(0.20) : NSColor(hex: "#E6F4EC")
     }))
     
-    /// High-Lumen Mint Accent for focus rings & live connection pings (#34D399 Dark / #10B981 Light)
-    public static let accentMint = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#34D399") : NSColor(hex: "#10B981")
+    public static let accentSageText = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#6DB28B") : NSColor(hex: "#1D5333")
     }))
     
-    /// Backward-compatible primary brand alias pointing to the new Emerald Green accent
-    public static let accentSky = accentEmerald
-    public static let accentSkyMuted = accentEmeraldMuted
+    /// Backward-compatible primary brand aliases pointing cleanly to Crisp Sage
+    public static let accentEmerald = accentSage
+    public static let accentEmeraldMuted = accentSageMuted
+    public static let accentMint = accentSage
+    public static let accentSky = accentSage
+    public static let accentSkyMuted = accentSageMuted
     
-    /// Superuser Flat Indigo Tier (#6366F1 Dark / #4F46E5 Light)
+    /// Superuser & Views: Crisp Slate Lavender (#5B589C Light / #8582C9 Dark)
     public static let purpleSuper = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#6366F1") : NSColor(hex: "#4F46E5")
+        appearance.isDark ? NSColor(hex: "#8582C9") : NSColor(hex: "#5B589C")
     }))
     
     public static let purpleSuperMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#6366F1").withAlphaComponent(0.12) : NSColor(hex: "#4F46E5").withAlphaComponent(0.10)
+        appearance.isDark ? NSColor(hex: "#8582C9").withAlphaComponent(0.20) : NSColor(hex: "#EEEDF9")
     }))
     
-    /// Read-Write Tier (Flat Emerald)
-    public static let emeraldRw = accentEmerald
-    public static let emeraldRwMuted = accentEmeraldMuted
+    public static let purpleSuperText = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#9F9CE0") : NSColor(hex: "#3C3A78")
+    }))
     
-    /// Read-Only Flat Amber Tier (#F59E0B Dark / #D97706 Light)
+    /// Read-Write Tier (Crisp Sage)
+    public static let emeraldRw = accentSage
+    public static let emeraldRwMuted = accentSageMuted
+    
+    /// Read-Only & Warnings: Crisp Warm Apricot (#C06A1C Light / #E58E45 Dark)
     public static let amberRo = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#F59E0B") : NSColor(hex: "#D97706")
+        appearance.isDark ? NSColor(hex: "#E58E45") : NSColor(hex: "#C06A1C")
     }))
     
     public static let amberRoMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#F59E0B").withAlphaComponent(0.12) : NSColor(hex: "#D97706").withAlphaComponent(0.10)
+        appearance.isDark ? NSColor(hex: "#E58E45").withAlphaComponent(0.20) : NSColor(hex: "#FDF2E7")
     }))
     
-    /// Destructive Flat Crimson Tier (#EF4444 Dark / #DC2626 Light)
+    public static let amberRoText = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#F2A15E") : NSColor(hex: "#7D3E08")
+    }))
+    
+    /// Destructive & Errors: Crisp Soft Coral Crimson (#C54444 Light / #E26666 Dark)
     public static let destructiveRed = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#EF4444") : NSColor(hex: "#DC2626")
+        appearance.isDark ? NSColor(hex: "#E26666") : NSColor(hex: "#C54444")
     }))
     
     public static let destructiveRedMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.isDark ? NSColor(hex: "#EF4444").withAlphaComponent(0.12) : NSColor(hex: "#DC2626").withAlphaComponent(0.10)
+        appearance.isDark ? NSColor(hex: "#E26666").withAlphaComponent(0.20) : NSColor(hex: "#FDECEC")
+    }))
+    
+    public static let destructiveRedText = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#F08282") : NSColor(hex: "#842323")
+    }))
+    
+    /// External FDW & Remote Tables: Crisp Slate Sky (#2F7B9E Light / #5BA8CE Dark)
+    public static let pastelSky = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#5BA8CE") : NSColor(hex: "#2F7B9E")
+    }))
+    
+    public static let pastelSkyMuted = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#5BA8CE").withAlphaComponent(0.20) : NSColor(hex: "#E6F3F9")
+    }))
+    
+    public static let pastelSkyText = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#72BFEC") : NSColor(hex: "#1B4F68")
     }))
     
     // MARK: - Typography & Geometry Tokens
     
-    public static let cornerRadiusPill: CGFloat = 9999
-    public static let cornerRadiusCard: CGFloat = 10
-    public static let cornerRadiusButton: CGFloat = 6
-    public static let cornerRadiusWindow: CGFloat = 14
+    /// Option B Architectural Micro-Box badge corner radius (4.0pt)
+    public static let cornerRadiusBadge: CGFloat = 4.0
+    /// Legacy alias pointing to Option B micro-box to automatically fix legacy pills
+    public static let cornerRadiusPill: CGFloat = 4.0
+    public static let cornerRadiusCard: CGFloat = 8.0
+    public static let cornerRadiusButton: CGFloat = 6.0
+    public static let cornerRadiusInput: CGFloat = 6.0
+    public static let cornerRadiusWindow: CGFloat = 14.0
     public static let hairlineBorder: CGFloat = 1.0
     public static let standardBorder: CGFloat = 1.0
+    public static let badgeBorderWidth: CGFloat = 0.0
 }
 
 // MARK: - NSColor & NSAppearance Extensions
@@ -122,7 +154,7 @@ extension NSColor {
     }
 }
 
-// MARK: - Reusable Modern Flat Postgrace View Modifiers
+// MARK: - Reusable Modern Postgrace View Modifiers
 
 public struct PostgraceCardModifier: ViewModifier {
     public func body(content: Content) -> some View {
@@ -136,19 +168,35 @@ public struct PostgraceCardModifier: ViewModifier {
     }
 }
 
+/// Option B Borderless Micro-Box badge modifier
+public struct PostgraceBadgeModifier: ViewModifier {
+    let background: Color
+    let foreground: Color
+
+    public func body(content: Content) -> some View {
+        content
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(foreground)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
+    }
+}
+
 public struct PostgracePillModifier: ViewModifier {
     let background: Color
     let border: Color
 
     public func body(content: Content) -> some View {
         content
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
             .background(background)
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
             .overlay(
-                Capsule()
-                    .stroke(border, lineWidth: PostgraceTheme.hairlineBorder)
+                RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous)
+                    .stroke(border == .clear ? Color.clear : border, lineWidth: border == .clear ? 0 : PostgraceTheme.hairlineBorder)
             )
     }
 }
@@ -156,6 +204,10 @@ public struct PostgracePillModifier: ViewModifier {
 extension View {
     public func postgraceCard() -> some View {
         modifier(PostgraceCardModifier())
+    }
+
+    public func postgraceBadge(bg: Color, fg: Color) -> some View {
+        modifier(PostgraceBadgeModifier(background: bg, foreground: fg))
     }
 
     public func postgracePill(background: Color, border: Color) -> some View {

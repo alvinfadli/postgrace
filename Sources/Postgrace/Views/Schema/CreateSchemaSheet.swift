@@ -89,21 +89,19 @@ struct CreateSchemaSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Schema Name")
                         .font(.caption.bold())
-                    TextField("e.g. billing, analytics, app_v2", text: $schemaName)
-                        .textFieldStyle(.roundedBorder)
+                    PostgraceTextField("e.g. billing, analytics, app_v2", text: $schemaName)
 
                     if !schemaName.isEmpty && !isValidIdentifier {
                         Text("Schema name must start with a letter/underscore and contain only letters, numbers, and underscores.")
                             .font(.caption2)
-                            .foregroundColor(.red)
+                            .foregroundColor(PostgraceTheme.destructiveRed)
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Authorization Owner (Optional)")
                         .font(.caption.bold())
-                    TextField(currentUser.isEmpty ? "Owner role" : "Default: \(currentUser)", text: $customOwner)
-                        .textFieldStyle(.roundedBorder)
+                    PostgraceTextField(currentUser.isEmpty ? "Owner role" : "Default: \(currentUser)", text: $customOwner)
                     Text("Leave blank to default to the current login role.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -132,13 +130,13 @@ struct CreateSchemaSheet: View {
             if let error = errorMessage {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                 }
                 .padding(6)
-                .background(Color.red.opacity(0.1))
+                .background(PostgraceTheme.destructiveRedMuted)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
@@ -148,23 +146,20 @@ struct CreateSchemaSheet: View {
 
             // Action Buttons
             HStack {
-                Button("Cancel") {
+                PostgraceButton("Cancel", variant: .ghost) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                if isCreating {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                Button("Create Schema") {
+                PostgraceButton(
+                    "Create Schema",
+                    variant: .primary,
+                    isLoading: isCreating
+                ) {
                     createAction()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(PostgraceTheme.accentSky)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValidIdentifier || isCreating)
             }

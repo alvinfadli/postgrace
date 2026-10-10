@@ -77,6 +77,45 @@ final class ViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isExecuting)
         XCTAssertEqual(vm.executionError, "Query cancelled by user.")
     }
+
+    func testQueryViewModelMultipleQueries() {
+        let postgres = PostgresService()
+        let vm = QueryViewModel(postgresService: postgres)
+
+        XCTAssertEqual(vm.statementCount, 0)
+        XCTAssertNil(vm.statementAtCursor)
+
+        vm.queryText = "SELECT 1;\nSELECT 2;\nSELECT 3;"
+        XCTAssertEqual(vm.statementCount, 3)
+        XCTAssertEqual(vm.statementSpans.count, 3)
+
+        // Statement at cursor at location 12 (in "SELECT 2")
+        vm.selectedRange = NSRange(location: 12, length: 0)
+        XCTAssertEqual(vm.statementAtCursor?.statement, "SELECT 2")
+
+        // Multi-result state
+        let res1 = QueryResult(columns: [ResultColumn(name: "num", dataTypeOID: 23, dataTypeName: "int4")], rows: [[.int(1)]], executionTime: 0.005, rowsAffected: 1, statusMessage: "OK")
+        let item1 = StatementResult(index: 0, statement: "SELECT 1", result: res1, error: nil, duration: 0.005)
+        let item2 = StatementResult(index: 1, statement: "SELECT 2", result: nil, error: "Syntax error", duration: 0.002)
+
+        vm.statementResults = [item1, item2]
+        vm.selectedStatementIndex = 0
+        XCTAssertEqual(vm.activeStatementResult?.statement, "SELECT 1")
+        XCTAssertTrue(vm.activeStatementResult?.isSuccess ?? false)
+        XCTAssertEqual(vm.result?.rows.count, 1)
+
+        // Switch to result 2
+        vm.selectedStatementIndex = 1
+        XCTAssertEqual(vm.activeStatementResult?.statement, "SELECT 2")
+        XCTAssertFalse(vm.activeStatementResult?.isSuccess ?? true)
+        XCTAssertEqual(vm.activeStatementResult?.error, "Syntax error")
+
+        // Clear results
+        vm.clearResult()
+        XCTAssertTrue(vm.statementResults.isEmpty)
+        XCTAssertEqual(vm.selectedStatementIndex, 0)
+        XCTAssertNil(vm.result)
+    }
     
     // MARK: - DatabaseSchema Model Tests
     
@@ -107,9 +146,11 @@ final class ViewModelTests: XCTestCase {
     // MARK: - ConnectionViewModel Tests
     
     func testConnectionViewModelManagement() {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test_conn_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         let postgres = PostgresService()
         let keychain = KeychainService()
-        let vm = ConnectionViewModel(postgresService: postgres, keychainService: keychain)
+        let vm = ConnectionViewModel(postgresService: postgres, keychainService: keychain, storageURL: tempURL)
         
         let initialCount = vm.savedConnections.count
         let newConn = SavedConnection(
@@ -148,9 +189,11 @@ final class ViewModelTests: XCTestCase {
     }
 
     func testEditConnectionFormAndSafePasswordRetention() {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test_conn_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         let postgres = PostgresService()
         let keychain = KeychainService()
-        let vm = ConnectionViewModel(postgresService: postgres, keychainService: keychain)
+        let vm = ConnectionViewModel(postgresService: postgres, keychainService: keychain, storageURL: tempURL)
 
         let conn = SavedConnection(
             name: "Production Replica",
@@ -347,6 +390,60 @@ final class ViewModelTests: XCTestCase {
         XCTAssertEqual(vm.buildFilterClause(), "")
     }
 
+    func testColumnFilterHelpers() {
+        let postgres = PostgresService()
+        let vm = DataGridViewModel(postgresService: postgres)
+        vm.availableColumns = ["id", "email", "role"]
+
+        XCTAssertFalse(vm.hasFilter(for: "email"))
+        XCTAssertNil(vm.filterRule(for: "email"))
+
+        // Add filter
+        vm.filterRules.append(FilterRule(column: "email", op: .contains, value: "@example.com"))
+        XCTAssertTrue(vm.hasFilter(for: "email"))
+        XCTAssertEqual(vm.filterRule(for: "email")?.value, "@example.com")
+        XCTAssertEqual(vm.filterRule(for: "email")?.op, .contains)
+
+        // Remove filter for column
+        vm.filterRules.removeAll(where: { $0.column == "email" })
+        XCTAssertFalse(vm.hasFilter(for: "email"))
+        XCTAssertNil(vm.filterRule(for: "email"))
+    }
+
+    func testColumnVisibilityHelpers() {
+        let postgres = PostgresService()
+        let vm = DataGridViewModel(postgresService: postgres)
+        vm.availableColumns = ["id", "name", "email", "created_at"]
+
+        XCTAssertTrue(vm.hiddenColumns.isEmpty)
+        XCTAssertTrue(vm.isColumnVisible("name"))
+        XCTAssertTrue(vm.isColumnVisible("email"))
+
+        // Hide email
+        vm.toggleColumnVisibility("email")
+        XCTAssertFalse(vm.isColumnVisible("email"))
+        XCTAssertTrue(vm.hiddenColumns.contains("email"))
+        XCTAssertTrue(vm.isColumnVisible("name"))
+
+        // Unhide email
+        vm.toggleColumnVisibility("email")
+        XCTAssertTrue(vm.isColumnVisible("email"))
+        XCTAssertFalse(vm.hiddenColumns.contains("email"))
+
+        // Hide all except keep column
+        vm.hideAllColumns(except: "id")
+        XCTAssertTrue(vm.isColumnVisible("id"))
+        XCTAssertFalse(vm.isColumnVisible("name"))
+        XCTAssertFalse(vm.isColumnVisible("email"))
+        XCTAssertFalse(vm.isColumnVisible("created_at"))
+
+        // Restore all
+        vm.showAllColumns()
+        XCTAssertTrue(vm.hiddenColumns.isEmpty)
+        XCTAssertTrue(vm.isColumnVisible("name"))
+        XCTAssertTrue(vm.isColumnVisible("email"))
+    }
+
     // MARK: - Database Role Eligibility & Drop Guard Tests
 
     func testDatabaseRoleEligibility() {
@@ -451,5 +548,364 @@ final class ViewModelTests: XCTestCase {
         XCTAssertEqual(vm.accurateRowCounts["public.customers"], 999)
         XCTAssertEqual(vm.tableDetails["public"]?.first?.rowCount, 999)
     }
+
+    func testConnectionViewModelToggleSafeMode() {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test_conn_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let postgres = PostgresService()
+        let keychain = KeychainService()
+        let vm = ConnectionViewModel(postgresService: postgres, keychainService: keychain, storageURL: tempURL)
+
+        // Localhost connection: toggleable
+        let localConn = SavedConnection(name: "Local", host: "localhost", username: "pg", database: "test")
+        vm.selectedConnection = localConn
+        XCTAssertFalse(vm.selectedConnection!.isSafeModeEffective)
+
+        vm.toggleSafeMode()
+        XCTAssertTrue(vm.selectedConnection!.isSafeModeEffective)
+
+        vm.toggleSafeMode()
+        XCTAssertFalse(vm.selectedConnection!.isSafeModeEffective)
+
+        // Remote connection: cannot toggle, permanently locked
+        let remoteConn = SavedConnection(name: "Remote Prod", host: "db.production.aws.com", username: "pg", database: "prod")
+        vm.selectedConnection = remoteConn
+        XCTAssertTrue(vm.selectedConnection!.isSafeModeEffective)
+
+        vm.toggleSafeMode()
+        XCTAssertTrue(vm.selectedConnection!.isSafeModeEffective, "Toggle must have no effect on remote connections")
+    }
+
+    func testQueryViewModelEvaluateSafety() {
+        let postgres = PostgresService()
+        let vm = QueryViewModel(postgresService: postgres)
+
+        vm.queryText = "SELECT * FROM users;"
+        let res1 = vm.evaluateSafety()
+        XCTAssertFalse(res1.isDangerous)
+
+        vm.queryText = "DELETE FROM users;"
+        let res2 = vm.evaluateSafety()
+        XCTAssertTrue(res2.isDangerous)
+        XCTAssertTrue(res2.isUnbounded)
+
+        vm.queryText = "DROP TABLE audit_trail;"
+        let res3 = vm.evaluateSafety()
+        XCTAssertTrue(res3.isDangerous)
+        XCTAssertEqual(res3.statementType, "DROP")
+    }
+
+    func testPostgresErrorFormatting() {
+        // Test generic Cocoa error with "error 1"
+        let cocoaErr = NSError(domain: "PostgresNIO.PSQLError", code: 1, userInfo: [NSLocalizedDescriptionKey: "The operation couldn’t be completed. (PostgresNIO.PSQLError error 1.)"])
+        let formatted = PostgresService.formatError(cocoaErr, host: "localhost", port: 5432)
+        XCTAssertFalse(formatted.contains("The operation couldn’t be completed"), "Formatted error must strip generic Cocoa wrapper")
+
+        // Test custom PostgresServiceError
+        let customErr = PostgresServiceError.connectionFailed("Connection refused (localhost:5432).")
+        let formattedCustom = PostgresService.formatError(customErr)
+        XCTAssertEqual(formattedCustom, "Connection failed: Connection refused (localhost:5432).")
+    }
+
+    // MARK: - Fast Table Switching & Query Cancellation Tests
+
+    func testDataGridViewModelSuppressesQueryCancelledError() async {
+        let postgres = PostgresService()
+        let mockDriver = MockCancellableDriver()
+        await mockDriver.setError(for: "cancelled_table", error: DatabaseServiceError.queryFailed("Query cancelled by user."))
+        await postgres.setActiveDriverForTesting(mockDriver)
+
+        let vm = DataGridViewModel(postgresService: postgres)
+        await vm.loadTableData(schema: "public", table: "cancelled_table")
+
+        XCTAssertNil(vm.error, "Cancelled queries must not set an error banner")
+        XCTAssertFalse(vm.isLoading, "Loading state must reset cleanly")
+        XCTAssertNil(vm.result)
+    }
+
+    func testDataGridViewModelRapidSwitchingDiscardsStaleResponse() async {
+        let postgres = PostgresService()
+        let mockDriver = MockCancellableDriver()
+        await mockDriver.setDelay(for: "table_slow", delay: .milliseconds(150))
+        await mockDriver.setRowCount(for: "table_slow", count: 999)
+        await mockDriver.setDelay(for: "table_fast", delay: .milliseconds(20))
+        await mockDriver.setRowCount(for: "table_fast", count: 42)
+        await postgres.setActiveDriverForTesting(mockDriver)
+
+        let vm = DataGridViewModel(postgresService: postgres)
+
+        // Launch slow table load first
+        let task1 = Task {
+            await vm.loadTableData(schema: "public", table: "table_slow")
+        }
+        // Rapid switch to fast table (short delay to ensure task 1 started)
+        try? await Task.sleep(for: .milliseconds(10))
+        let task2 = Task {
+            await vm.loadTableData(schema: "public", table: "table_fast")
+        }
+
+        _ = await (task1.value, task2.value)
+
+        XCTAssertEqual(vm.currentTable, "table_fast")
+        XCTAssertEqual(vm.totalRows, 42, "Total rows must reflect the latest selected table, not the stale slow table")
+        XCTAssertNil(vm.error)
+        XCTAssertFalse(vm.isLoading)
+    }
+
+    func testDataGridViewModelStaleCancellationDoesNotOverwriteNewTable() async {
+        let postgres = PostgresService()
+        let mockDriver = MockCancellableDriver()
+        await mockDriver.setDelay(for: "table_slow", delay: .milliseconds(100))
+        await mockDriver.setError(for: "table_slow", error: DatabaseServiceError.queryFailed("Query cancelled by user."))
+        await mockDriver.setDelay(for: "table_fast", delay: .milliseconds(10))
+        await mockDriver.setRowCount(for: "table_fast", count: 100)
+        await postgres.setActiveDriverForTesting(mockDriver)
+
+        let vm = DataGridViewModel(postgresService: postgres)
+
+        let task1 = Task {
+            await vm.loadTableData(schema: "public", table: "table_slow")
+        }
+        try? await Task.sleep(for: .milliseconds(10))
+        let task2 = Task {
+            await vm.loadTableData(schema: "public", table: "table_fast")
+        }
+
+        _ = await (task1.value, task2.value)
+
+        XCTAssertEqual(vm.currentTable, "table_fast")
+        XCTAssertEqual(vm.totalRows, 100)
+        XCTAssertNil(vm.error, "Stale cancellation from prior table must not overwrite successful newer table")
+        XCTAssertFalse(vm.isLoading)
+    }
+
+    func testConnectionStorageFilePermissions() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("postgrace_perm_test_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("connections.json")
+        let postgres = PostgresService()
+        let keychain = KeychainService()
+        let vm = ConnectionViewModel(postgresService: postgres, keychainService: keychain, storageURL: fileURL)
+
+        let conn = SavedConnection(name: "SecurityTest", username: "postgres", database: "testdb")
+        vm.saveConnection(conn, password: "test")
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let perms = attrs[.posixPermissions] as? NSNumber
+        XCTAssertNotNil(perms)
+        XCTAssertEqual(perms?.intValue, 0o600, "connections.json must have 0600 POSIX permissions")
+    }
+
+    func testExportViewModelLifecycles() async {
+        let mock = MockDatabaseDriver()
+        let postgres = PostgresService()
+        await postgres.setActiveDriverForTesting(mock)
+        let vm = ExportViewModel(postgresService: postgres)
+
+        // Single table export setup
+        vm.startTableExport(schema: "analytics", table: "clicks", filterClause: "id > 10")
+        XCTAssertTrue(vm.isShowingSheet)
+        XCTAssertEqual(vm.configuration.whereClause, "id > 10")
+        XCTAssertEqual(vm.availableTables.count, 1)
+
+        // Multiple tables export setup
+        let items = [ExportTableItem(schema: "s1", table: "t1"), ExportTableItem(schema: "s2", table: "t2")]
+        vm.startMultipleTablesExport(tables: items)
+        XCTAssertEqual(vm.availableTables.count, 2)
+        XCTAssertEqual(vm.configuration.selectedTables.count, 2)
+
+        // Mock response for schema tables
+        await mock.setQueryResultProvider { query in
+            QueryResult(
+                columns: [ResultColumn(name: "table_schema", dataTypeOID: 25, dataTypeName: "text"), ResultColumn(name: "table_name", dataTypeOID: 25, dataTypeName: "text")],
+                rows: [
+                    [CellValue.string("reporting"), CellValue.string("summary_daily")],
+                    [CellValue.string("reporting"), CellValue.string("summary_monthly")]
+                ],
+                executionTime: 0.001,
+                rowsAffected: 2,
+                statusMessage: "SELECT 2"
+            )
+        }
+
+        // Schema tables loading
+        await vm.loadTablesForSchema("reporting")
+        XCTAssertEqual(vm.availableTables.count, 2)
+        XCTAssertEqual(vm.configuration.selectedTables.count, 2)
+        XCTAssertEqual(vm.availableSchemas, ["reporting"])
+
+        // Multiple schema tables loading
+        await vm.loadTablesForMultipleSchemas(["reporting", "archive"])
+        XCTAssertEqual(vm.availableSchemas.count, 2)
+
+        // Database tables loading
+        await vm.loadTablesForDatabase()
+        XCTAssertFalse(vm.isLoadingTables)
+
+        // Schema selection toggling
+        vm.availableSchemas = ["s1", "s2"]
+        vm.availableTables = [
+            ExportTableItem(schema: "s1", table: "t1"),
+            ExportTableItem(schema: "s2", table: "t2")
+        ]
+        vm.selectAllSchemas()
+        XCTAssertTrue(vm.isSchemaSelected("s1"))
+        XCTAssertTrue(vm.isSchemaSelected("s2"))
+        XCTAssertTrue(vm.isTableSelected(ExportTableItem(schema: "s1", table: "t1")))
+
+        vm.toggleSchemaSelection("s1")
+        XCTAssertFalse(vm.isSchemaSelected("s1"))
+        XCTAssertFalse(vm.isTableSelected(ExportTableItem(schema: "s1", table: "t1")))
+
+        vm.deselectAllSchemas()
+        XCTAssertFalse(vm.isSchemaSelected("s2"))
+        XCTAssertTrue(vm.configuration.selectedTables.isEmpty)
+
+        // Cancellation and sheet closure
+        vm.isExporting = true
+        vm.cancelExport()
+        XCTAssertFalse(vm.isExporting)
+        XCTAssertEqual(vm.progress.status, .cancelled)
+
+        vm.closeSheet()
+        XCTAssertFalse(vm.isShowingSheet)
+    }
+
+    func testQueryViewModelStatementSpansAndExecution() async {
+        let mock = MockDatabaseDriver()
+        let postgres = PostgresService()
+        await postgres.setActiveDriverForTesting(mock)
+        let vm = QueryViewModel(postgresService: postgres)
+
+        vm.queryText = """
+        SELECT * FROM users;
+        SELECT * FROM orders WHERE total > 100;
+        UPDATE settings SET value = 'dark';
+        """
+
+        // Statement analysis
+        XCTAssertEqual(vm.statementCount, 3)
+        XCTAssertEqual(vm.statementSpans.count, 3)
+
+        // Cursor statement detection
+        vm.selectedRange = NSRange(location: 5, length: 0)
+        XCTAssertEqual(vm.statementAtCursor?.statement.trimmingCharacters(in: .whitespacesAndNewlines), "SELECT * FROM users")
+
+        vm.selectedRange = NSRange(location: 30, length: 0)
+        XCTAssertTrue(vm.statementAtCursor?.statement.contains("orders") ?? false)
+
+        // Statement execution
+        await vm.executeStatements([
+            "SELECT 1;",
+            "SELECT 2;"
+        ])
+
+        XCTAssertEqual(vm.statementResults.count, 2)
+        XCTAssertEqual(vm.queryHistory.count, 2)
+        XCTAssertNotNil(vm.activeStatementResult)
+        XCTAssertTrue(vm.activeStatementResult?.isSuccess ?? false)
+        XCTAssertEqual(vm.activeStatementResult?.rowCount, 2)
+        XCTAssertEqual(vm.activeStatementResult?.columnCount, 2)
+
+        // Legacy result compatibility
+        XCTAssertNotNil(vm.result)
+
+        // Cancel running query
+        vm.isExecuting = true
+        vm.cancelQuery()
+        XCTAssertFalse(vm.isExecuting)
+    }
+}
+
+
+// MARK: - Mock Driver for Cancellation & Concurrency Tests
+
+private actor MockCancellableDriver: DatabaseDriverProtocol {
+    nonisolated var engine: DatabaseEngine { .postgresql }
+    var isConnected: Bool = true
+    var currentDatabase: String? = "test_db"
+    var activeConfig: SavedConnection? = nil
+    var activePassword: String? = nil
+    var lastConnectionError: String? = nil
+
+    private var delayForTable: [String: Duration] = [:]
+    private var errorForTable: [String: Error] = [:]
+    private var rowCountForTable: [String: Int64] = [:]
+
+    func setDelay(for table: String, delay: Duration) {
+        delayForTable[table] = delay
+    }
+
+    func setError(for table: String, error: Error) {
+        errorForTable[table] = error
+    }
+
+    func setRowCount(for table: String, count: Int64) {
+        rowCountForTable[table] = count
+    }
+
+    func connect(config: SavedConnection, password: String) async throws {}
+    func disconnect() async throws {}
+    func switchDatabase(to newDatabase: String) async throws {}
+    func testConnection(config: SavedConnection, password: String) async throws -> Bool { true }
+    func executeQuery(_ sql: String) async throws -> QueryResult {
+        QueryResult(columns: [], rows: [], executionTime: 0, rowsAffected: 0, statusMessage: "OK")
+    }
+
+    func fetchTableData(
+        schema: String,
+        table: String,
+        filterClause: String,
+        orderBy: String?,
+        limit: Int,
+        offset: Int
+    ) async throws -> QueryResult {
+        if let delay = delayForTable[table] {
+            try await Task.sleep(for: delay)
+        }
+        if let err = errorForTable[table] {
+            throw err
+        }
+        let count = Int(rowCountForTable[table] ?? 1)
+        return QueryResult(
+            columns: [ResultColumn(name: "id", dataTypeOID: 23, dataTypeName: "int4")],
+            rows: (0..<count).map { [.int(Int64($0))] },
+            executionTime: 0.01,
+            rowsAffected: count,
+            statusMessage: "SELECT \(count)"
+        )
+    }
+
+    func fetchTableRowCount(schema: String, table: String, filterClause: String) async throws -> Int64 {
+        if let delay = delayForTable[table] {
+            try await Task.sleep(for: delay)
+        }
+        if let err = errorForTable[table] {
+            throw err
+        }
+        return rowCountForTable[table] ?? 1
+    }
+
+    func executeRawStatement(_ sql: String) async throws {}
+    func streamQuery(
+        _ sql: String,
+        onRow: @escaping ([ResultColumn], [CellValue]) async throws -> Void
+    ) async throws -> (columns: [ResultColumn], rowCount: Int64, executionTime: Double) {
+        ([], 0, 0)
+    }
+
+    func executeBatchInsert(
+        schema: String,
+        table: String,
+        columns: [String],
+        rows: [[String]],
+        treatEmptyAsNull: Bool
+    ) async throws -> Int {
+        0
+    }
+
+    func cancelRunningQuery() async {}
 }
 

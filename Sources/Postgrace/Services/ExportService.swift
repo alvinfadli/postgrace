@@ -85,22 +85,13 @@ public final class ExportService {
                     context: context
                 )
             case .schema(let schemaName, _):
-                if !toolchainService.isPgDumpAvailable && !config.selectedTables.isEmpty {
-                    try await exportMultipleTables(
-                        tables: config.selectedTables,
-                        config: config,
-                        destinationURL: destinationURL,
-                        context: context
-                    )
-                } else {
-                    try await exportSchemaOrDatabase(
-                        isSchema: true,
-                        targetName: schemaName,
-                        config: config,
-                        destinationURL: destinationURL,
-                        context: context
-                    )
-                }
+                try await exportSchemaOrDatabase(
+                    isSchema: true,
+                    targetName: schemaName,
+                    config: config,
+                    destinationURL: destinationURL,
+                    context: context
+                )
             case .multipleSchemas(let schemaNames):
                 try await exportMultipleSchemas(
                     schemaNames: schemaNames,
@@ -109,35 +100,36 @@ public final class ExportService {
                     context: context
                 )
             case .database(let dbName):
-                if !toolchainService.isPgDumpAvailable && !config.selectedTables.isEmpty {
-                    try await exportMultipleTables(
-                        tables: config.selectedTables,
-                        config: config,
-                        destinationURL: destinationURL,
-                        context: context
-                    )
-                } else {
-                    try await exportSchemaOrDatabase(
-                        isSchema: false,
-                        targetName: dbName,
-                        config: config,
-                        destinationURL: destinationURL,
-                        context: context
-                    )
-                }
+                try await exportSchemaOrDatabase(
+                    isSchema: false,
+                    targetName: dbName,
+                    config: config,
+                    destinationURL: destinationURL,
+                    context: context
+                )
             }
 
             if Task.isCancelled {
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try? FileManager.default.removeItem(at: destinationURL)
+                }
                 context.progress.status = .cancelled
+                throw CancellationError()
             } else {
                 context.progress.status = .completed("Successfully exported to \(destinationURL.lastPathComponent)")
             }
             context.notify()
         } catch is CancellationError {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try? FileManager.default.removeItem(at: destinationURL)
+            }
             context.progress.status = .cancelled
             context.notify()
             throw CancellationError()
         } catch {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try? FileManager.default.removeItem(at: destinationURL)
+            }
             context.progress.status = .failed(error.localizedDescription)
             context.progress.errorLog.append(error.localizedDescription)
             context.notify()
@@ -347,6 +339,14 @@ public final class ExportService {
 
     /// Fetches table DDL definition (CREATE TABLE IF NOT EXISTS with columns, types, defaults, and primary keys).
     private func fetchTableDDL(schema: String, table: String) async throws -> String {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let res = try? await postgresService.executeQuery("SHOW CREATE TABLE \(schema.mysqlQuotedIdentifier).\(table.mysqlQuotedIdentifier);")
+            if let first = res?.rows.first, first.count >= 2, case .string(let ddl) = first[1] {
+                return "\(ddl);\n\n"
+            }
+        }
+
         let colQuery = """
             SELECT c.column_name, c.data_type, c.udt_name, c.is_nullable, 
                    c.column_default, c.character_maximum_length,
@@ -880,7 +880,7 @@ public final class ExportService {
         try bufferedHandle.flush()
     }
 
-    // MARK: - Schema and Database Export (Toolchain)
+    // MARK: - Schema and Database Export (Toolchain & Native Streaming Fallback)
 
     private func exportMultipleSchemas(
         schemaNames: [String],
@@ -907,10 +907,6 @@ public final class ExportService {
                 args.append(contentsOf: ["-n", s])
             }
 
-            for t in config.selectedTables {
-                args.append(contentsOf: ["-t", "\(t.schema).\(t.table)"])
-            }
-
             if config.cleanBeforeRestore {
                 args.append("--clean")
                 args.append("--if-exists")
@@ -920,6 +916,10 @@ public final class ExportService {
                 args.append("--schema-only")
             } else if config.contentMode == .dataOnly {
                 args.append("--data-only")
+            }
+
+            if config.format == .customDump {
+                args.append(contentsOf: ["-Z", "\(config.postgresOptions.customDumpCompressionLevel)"])
             }
 
             args.append(contentsOf: ["-f", destinationURL.path])
@@ -932,20 +932,12 @@ public final class ExportService {
                 context?.notify()
             }
         } else {
-            if !config.selectedTables.isEmpty {
-                try await exportMultipleTablesToSQL(
-                    tables: config.selectedTables,
-                    config: config,
-                    destinationURL: destinationURL,
-                    context: context
-                )
-            } else {
-                throw NSError(
-                    domain: "ExportService",
-                    code: 3,
-                    userInfo: [NSLocalizedDescriptionKey: "Full schema export requires pg_dump. Install PostgreSQL tools via Homebrew (`brew install libpq`)."]
-                )
-            }
+            try await exportSchemasNative(
+                schemaNames: schemaNames,
+                config: config,
+                destinationURL: destinationURL,
+                context: context
+            )
         }
     }
 
@@ -971,10 +963,10 @@ public final class ExportService {
 
             if isSchema {
                 args.append(contentsOf: ["-n", targetName])
-            }
-
-            for t in config.selectedTables {
-                args.append(contentsOf: ["-t", "\(t.schema).\(t.table)"])
+            } else if !config.selectedSchemas.isEmpty {
+                for s in config.selectedSchemas {
+                    args.append(contentsOf: ["-n", s])
+                }
             }
 
             if config.cleanBeforeRestore {
@@ -990,7 +982,7 @@ public final class ExportService {
 
             switch config.format {
             case .customDump:
-                args.append(contentsOf: ["-F", "c"])
+                args.append(contentsOf: ["-F", "c", "-Z", "\(config.postgresOptions.customDumpCompressionLevel)"])
             default:
                 args.append(contentsOf: ["-F", "p"])
             }
@@ -1005,11 +997,346 @@ public final class ExportService {
                 context?.notify()
             }
         } else {
-            throw NSError(
-                domain: "ExportService",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Full \(isSchema ? "schema" : "database") export requires pg_dump. Install PostgreSQL tools via Homebrew (`brew install libpq` or `brew install postgresql`)."]
-            )
+            if isSchema {
+                try await exportSchemasNative(
+                    schemaNames: [targetName],
+                    config: config,
+                    destinationURL: destinationURL,
+                    context: context
+                )
+            } else {
+                var targetSchemas = config.selectedSchemas
+                if targetSchemas.isEmpty {
+                    let schemaQuery = """
+                        SELECT nspname 
+                        FROM pg_namespace 
+                        WHERE nspname NOT LIKE 'pg_%' 
+                          AND nspname != 'information_schema'
+                        ORDER BY nspname ASC;
+                    """
+                    if let res = try? await postgresService.executeQuery(schemaQuery) {
+                        for r in res.rows {
+                            if let first = r.first, case .string(let s) = first {
+                                targetSchemas.append(s)
+                            }
+                        }
+                    }
+                    if targetSchemas.isEmpty {
+                        targetSchemas = ["public"]
+                    }
+                }
+                try await exportSchemasNative(
+                    schemaNames: targetSchemas,
+                    config: config,
+                    destinationURL: destinationURL,
+                    context: context
+                )
+            }
         }
+    }
+
+    /// Native Swift streaming fallback for multi-schema and full database exports.
+    /// Strictly enforces topological DDL ordering:
+    /// Stage 01: Schema Declaration -> Stage 02: Search Path -> Stage 04: Custom Types & ENUMs ->
+    /// Stage 05: Sequences -> Stage 06: Base Tables -> Stage 07: Data Loading ->
+    /// Stage 08: Sequence Sync -> Stage 10: Foreign Keys -> Stage 11: Views.
+    private func exportSchemasNative(
+        schemaNames: [String],
+        config: ExportConfiguration,
+        destinationURL: URL,
+        context: ExportContext
+    ) async throws {
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        FileManager.default.createFile(atPath: destinationURL.path, contents: nil, attributes: nil)
+        let fileHandle = try FileHandle(forWritingTo: destinationURL)
+        let bufferedHandle = BufferedFileHandle(fileHandle: fileHandle)
+        defer { bufferedHandle.close() }
+
+        func writeSQL(_ text: String) throws {
+            if let data = text.data(using: .utf8) {
+                try bufferedHandle.write(data)
+                context.progress.bytesTransferred += Int64(data.count)
+            }
+        }
+
+        // Header Metadata
+        let headerComments = """
+        -- ============================================================
+        -- Postgrace Database Dump (Native Swift NIO Streaming Engine)
+        -- Scope: \(config.scope.title)
+        -- Schemas: \(schemaNames.joined(separator: ", "))
+        -- Mode: \(config.contentMode.rawValue)
+        -- Date: \(Date())
+        -- ============================================================
+
+        """
+        try writeSQL(headerComments)
+
+        if config.postgresOptions.singleTransaction {
+            try writeSQL("BEGIN;\n\n")
+        }
+
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+
+        // Stage 01: Clean & Schema Declaration
+        if config.cleanBeforeRestore {
+            for s in schemaNames {
+                try writeSQL("DROP SCHEMA IF EXISTS \(s.pgQuotedIdentifier) CASCADE;\n")
+            }
+            try writeSQL("\n")
+        }
+
+        if config.postgresOptions.includeSchemaCreate {
+            for s in schemaNames {
+                try writeSQL("CREATE SCHEMA IF NOT EXISTS \(s.pgQuotedIdentifier);\n")
+            }
+            try writeSQL("\n")
+        }
+
+        // Stage 02: Search Path Setup
+        if config.postgresOptions.setPathHeader && !schemaNames.isEmpty {
+            let pathTokens = schemaNames.map { $0.pgQuotedIdentifier } + ["pg_catalog"]
+            try writeSQL("SET search_path = \(pathTokens.joined(separator: ", "));\n\n")
+        }
+
+        // Stage 04: Custom Types & ENUMs
+        if config.exportStructure && engine == .postgresql {
+            for s in schemaNames {
+                let enumQuery = """
+                    SELECT t.typname, 
+                           array_to_string(array_agg(quote_literal(e.enumlabel) ORDER BY e.enumsortorder), ', ') as enum_values
+                    FROM pg_type t
+                    JOIN pg_enum e ON t.oid = e.enumtypid
+                    JOIN pg_namespace n ON n.oid = t.typnamespace
+                    WHERE n.nspname = '\(s.pgEscapedLiteral)'
+                    GROUP BY t.typname
+                    ORDER BY t.typname;
+                """
+                if let res = try? await postgresService.executeQuery(enumQuery), !res.rows.isEmpty {
+                    try writeSQL("-- Stage 04: Custom Types & ENUMs (\(s))\n")
+                    for r in res.rows {
+                        if r.count >= 2,
+                           case .string(let typeName) = r[0],
+                           case .string(let enumVals) = r[1] {
+                            if config.cleanBeforeRestore {
+                                try writeSQL("DROP TYPE IF EXISTS \(s.pgQuotedIdentifier).\(typeName.pgQuotedIdentifier) CASCADE;\n")
+                            }
+                            try writeSQL("CREATE TYPE \(s.pgQuotedIdentifier).\(typeName.pgQuotedIdentifier) AS ENUM (\(enumVals));\n")
+                        }
+                    }
+                    try writeSQL("\n")
+                }
+            }
+        }
+
+        // Stage 05: Sequences
+        if config.exportStructure && engine == .postgresql {
+            for s in schemaNames {
+                let seqQuery = """
+                    SELECT c.relname
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relkind = 'S' AND n.nspname = '\(s.pgEscapedLiteral)'
+                    ORDER BY c.relname;
+                """
+                if let res = try? await postgresService.executeQuery(seqQuery), !res.rows.isEmpty {
+                    try writeSQL("-- Stage 05: Sequences (\(s))\n")
+                    for r in res.rows {
+                        if let first = r.first, case .string(let seqName) = first {
+                            if config.cleanBeforeRestore {
+                                try writeSQL("DROP SEQUENCE IF EXISTS \(s.pgQuotedIdentifier).\(seqName.pgQuotedIdentifier) CASCADE;\n")
+                            }
+                            try writeSQL("CREATE SEQUENCE IF NOT EXISTS \(s.pgQuotedIdentifier).\(seqName.pgQuotedIdentifier);\n")
+                        }
+                    }
+                    try writeSQL("\n")
+                }
+            }
+        }
+
+        // Stage 06: Base Tables (Structure Only)
+        var tablesToExport: [ExportTableItem] = []
+        if !config.selectedTables.isEmpty {
+            tablesToExport = config.selectedTables.filter { schemaNames.contains($0.schema) }
+        } else {
+            let schemasClause = schemaNames.map { "'\($0.pgEscapedLiteral)'" }.joined(separator: ", ")
+            let tablesQuery = """
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_schema IN (\(schemasClause))
+                  AND table_type = 'BASE TABLE'
+                ORDER BY table_schema ASC, table_name ASC;
+            """
+            if let res = try? await postgresService.executeQuery(tablesQuery) {
+                for r in res.rows {
+                    if r.count >= 2,
+                       case .string(let s) = r[0],
+                       case .string(let t) = r[1] {
+                        tablesToExport.append(ExportTableItem(schema: s, table: t))
+                    }
+                }
+            }
+        }
+
+        if config.exportStructure {
+            try writeSQL("-- Stage 06: Base Tables\n\n")
+            for t in tablesToExport {
+                if Task.isCancelled { throw CancellationError() }
+                if config.cleanBeforeRestore || config.sqlIncludeDropTable {
+                    try writeSQL("DROP TABLE IF EXISTS \(t.schema.pgQuotedIdentifier).\(t.table.pgQuotedIdentifier) CASCADE;\n")
+                }
+                let ddl = try await fetchTableDDL(schema: t.schema, table: t.table)
+                try writeSQL(ddl)
+            }
+        }
+
+        // Stage 07: Data Loading
+        if config.exportData {
+            try writeSQL("-- Stage 07: Data Loading\n\n")
+            for (index, t) in tablesToExport.enumerated() {
+                if Task.isCancelled { throw CancellationError() }
+                context.progress.currentOperation = "Exporting data [\(index + 1)/\(tablesToExport.count)] \(t.schema).\(t.table)..."
+                context.notify()
+
+                var querySQL = "SELECT * FROM \(t.schema.pgQuotedIdentifier).\(t.table.pgQuotedIdentifier)"
+                if !config.whereClause.isEmpty && tablesToExport.count == 1 {
+                    querySQL += " WHERE \(config.whereClause)"
+                }
+                try await streamTableRowsToSQL(
+                    schema: t.schema,
+                    table: t.table,
+                    querySQL: querySQL,
+                    batchSize: config.sqlBatchSize,
+                    bufferedHandle: bufferedHandle,
+                    context: context
+                )
+            }
+        }
+
+        // Stage 08: Sequence Synchronization (setval)
+        if config.exportData && engine == .postgresql {
+            var hasEmittedSeqSyncHeader = false
+            for s in schemaNames {
+                let syncQuery = """
+                    SELECT
+                        s.relname AS sequence_name,
+                        t.relname AS table_name,
+                        a.attname AS column_name
+                    FROM pg_class s
+                    JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass AND d.refclassid = 'pg_class'::regclass
+                    JOIN pg_class t ON t.oid = d.refobjid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+                    JOIN pg_namespace n ON n.oid = s.relnamespace
+                    WHERE s.relkind = 'S'
+                      AND n.nspname = '\(s.pgEscapedLiteral)'
+                    ORDER BY s.relname;
+                """
+                if let res = try? await postgresService.executeQuery(syncQuery), !res.rows.isEmpty {
+                    for r in res.rows {
+                        if r.count >= 3,
+                           case .string(let seqName) = r[0],
+                           case .string(let tableName) = r[1],
+                           case .string(let colName) = r[2] {
+                            if tablesToExport.contains(where: { $0.schema == s && $0.table == tableName }) {
+                                if !hasEmittedSeqSyncHeader {
+                                    try writeSQL("\n-- Stage 08: Sequence Synchronization\n")
+                                    hasEmittedSeqSyncHeader = true
+                                }
+                                try writeSQL("SELECT setval('\(s.pgQuotedIdentifier).\(seqName.pgQuotedIdentifier)', (SELECT COALESCE(MAX(\(colName.pgQuotedIdentifier)), 1) FROM \(s.pgQuotedIdentifier).\(tableName.pgQuotedIdentifier)));\n")
+                            }
+                        }
+                    }
+                }
+            }
+            if hasEmittedSeqSyncHeader {
+                try writeSQL("\n")
+            }
+        }
+
+        // Stage 10: Foreign Key Constraints
+        if config.exportStructure && engine == .postgresql {
+            var hasEmittedFKHeader = false
+            for s in schemaNames {
+                let fkQuery = """
+                    SELECT
+                        con.conname AS constraint_name,
+                        src_ns.nspname AS src_schema,
+                        src_cl.relname AS src_table,
+                        ref_ns.nspname AS ref_schema,
+                        ref_cl.relname AS ref_table,
+                        pg_get_constraintdef(con.oid) AS constraint_def
+                    FROM pg_constraint con
+                    JOIN pg_class src_cl ON src_cl.oid = con.conrelid
+                    JOIN pg_namespace src_ns ON src_ns.oid = src_cl.relnamespace
+                    JOIN pg_class ref_cl ON ref_cl.oid = con.confrelid
+                    JOIN pg_namespace ref_ns ON ref_ns.oid = ref_cl.relnamespace
+                    WHERE con.contype = 'f'
+                      AND src_ns.nspname = '\(s.pgEscapedLiteral)'
+                    ORDER BY con.conname;
+                """
+                if let res = try? await postgresService.executeQuery(fkQuery), !res.rows.isEmpty {
+                    for r in res.rows {
+                        if r.count >= 6,
+                           case .string(let conName) = r[0],
+                           case .string(let srcSchema) = r[1],
+                           case .string(let srcTable) = r[2],
+                           case .string(let refSchema) = r[3],
+                           case .string(_) = r[4],
+                           case .string(let conDef) = r[5] {
+                            if tablesToExport.contains(where: { $0.schema == srcSchema && $0.table == srcTable }) {
+                                if !hasEmittedFKHeader {
+                                    try writeSQL("-- Stage 10: Foreign Key Constraints\n")
+                                    hasEmittedFKHeader = true
+                                }
+                                let isExternal = !schemaNames.contains(refSchema)
+                                if isExternal && !config.postgresOptions.includeExternalForeignKeys {
+                                    try writeSQL("-- [EXTERNAL FK ISOLATED] ALTER TABLE \(srcSchema.pgQuotedIdentifier).\(srcTable.pgQuotedIdentifier) ADD CONSTRAINT \(conName.pgQuotedIdentifier) \(conDef);\n")
+                                } else {
+                                    try writeSQL("ALTER TABLE \(srcSchema.pgQuotedIdentifier).\(srcTable.pgQuotedIdentifier) ADD CONSTRAINT \(conName.pgQuotedIdentifier) \(conDef);\n")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if hasEmittedFKHeader {
+                try writeSQL("\n")
+            }
+        }
+
+        // Stage 11: Standard & Materialized Views
+        if config.exportStructure {
+            var hasEmittedViewHeader = false
+            for s in schemaNames {
+                let viewQuery = """
+                    SELECT table_name, view_definition
+                    FROM information_schema.views
+                    WHERE table_schema = '\(s.pgEscapedLiteral)'
+                    ORDER BY table_name;
+                """
+                if let res = try? await postgresService.executeQuery(viewQuery), !res.rows.isEmpty {
+                    for r in res.rows {
+                        if r.count >= 2,
+                           case .string(let viewName) = r[0],
+                           case .string(let viewDef) = r[1] {
+                            if !hasEmittedViewHeader {
+                                try writeSQL("-- Stage 11: Views\n")
+                                hasEmittedViewHeader = true
+                            }
+                            try writeSQL("CREATE OR REPLACE VIEW \(s.pgQuotedIdentifier).\(viewName.pgQuotedIdentifier) AS\n\(viewDef);\n\n")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Footer
+        if config.postgresOptions.singleTransaction {
+            try writeSQL("COMMIT;\n")
+        }
+
+        try bufferedHandle.flush()
     }
 }

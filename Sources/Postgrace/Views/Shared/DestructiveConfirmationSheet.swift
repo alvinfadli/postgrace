@@ -108,9 +108,7 @@ struct DestructiveConfirmationSheet: View {
                     let toggleLabel = (actionType == .dropDatabase)
                         ? "Force drop (terminate active client connections first)"
                         : "Cascade (automatically drop all dependent objects/foreign keys)"
-                    Toggle(toggleLabel, isOn: $cascade)
-                        .font(.caption)
-                        .foregroundColor(.primary)
+                    PostgraceCheckbox(toggleLabel, isOn: $cascade)
                         .padding(.top, 4)
                 }
             }
@@ -121,9 +119,7 @@ struct DestructiveConfirmationSheet: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                TextField(targetName, text: $typedConfirmation)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+                PostgraceTextField(targetName, text: $typedConfirmation, isMonospaced: true)
             }
 
             Spacer()
@@ -132,19 +128,17 @@ struct DestructiveConfirmationSheet: View {
 
             // Action Buttons
             HStack {
-                Button("Cancel") {
+                PostgraceButton("Cancel", variant: .secondary) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                Button(actionType.buttonTitle) {
+                PostgraceButton(actionType.buttonTitle, variant: .destructive) {
                     onConfirm(cascade)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(PostgraceTheme.destructiveRed)
                 .disabled(!isConfirmed || !canPerformAction)
             }
         }

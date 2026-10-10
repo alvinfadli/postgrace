@@ -10,6 +10,38 @@ public actor SchemaService {
     
     /// Fetches all databases with owners, encodings, sizes, and ownership status.
     public func fetchDatabases() async throws -> [DatabaseInfo] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let query = """
+                SELECT s.schema_name AS datname,
+                       1 AS oid,
+                       'root' AS owner,
+                       s.default_character_set_name AS encoding,
+                       COALESCE(CONCAT(ROUND(SUM(t.data_length + t.index_length) / 1024 / 1024, 2), ' MB'), '0 MB') AS size,
+                       true AS is_owner
+                FROM information_schema.schemata s
+                LEFT JOIN information_schema.tables t ON s.schema_name = t.table_schema
+                GROUP BY s.schema_name, s.default_character_set_name
+                ORDER BY s.schema_name ASC;
+            """
+            let result = try await postgresService.executeQuery(query)
+            var databases: [DatabaseInfo] = []
+            for row in result.rows {
+                guard row.count >= 2, case .string(let name) = row[0] else { continue }
+                let encoding = (row.count >= 4 && row[3].displayString != "NULL") ? row[3].displayString : "utf8mb4"
+                let size = (row.count >= 5 && row[4].displayString != "NULL") ? row[4].displayString : "0 MB"
+                databases.append(DatabaseInfo(
+                    name: name,
+                    oid: 1,
+                    owner: "root",
+                    encoding: encoding,
+                    size: size,
+                    isOwner: true
+                ))
+            }
+            return databases
+        }
+
         let query = """
             SELECT d.datname,
                    d.oid,
@@ -60,6 +92,12 @@ public actor SchemaService {
     
     /// Fetches all schemas in the current database, excluding internal ones.
     public func fetchSchemas() async throws -> [SchemaInfo] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let activeDb = await postgresService.currentDatabase ?? "mysql"
+            return [SchemaInfo(name: activeDb, oid: 1)]
+        }
+
         let query = """
             SELECT nspname, oid
             FROM pg_namespace
@@ -80,6 +118,46 @@ public actor SchemaService {
     
     /// Fetches all tables, views, and relation kinds for a given schema.
     public func fetchTables(schema: String) async throws -> [TableInfo] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let query = """
+                SELECT t.table_name,
+                       1 AS oid,
+                       COALESCE(t.table_rows, 0) AS estimated_row_count,
+                       CASE t.table_type
+                           WHEN 'VIEW' THEN 'VIEW'
+                           WHEN 'SYSTEM VIEW' THEN 'VIEW'
+                           ELSE 'BASE TABLE'
+                       END AS table_type
+                FROM information_schema.tables t
+                WHERE t.table_schema = '\(schema.mysqlEscapedLiteral)'
+                ORDER BY t.table_name ASC;
+            """
+            let result = try await postgresService.executeQuery(query)
+            var tables: [TableInfo] = []
+            for row in result.rows {
+                guard row.count >= 4, case .string(let name) = row[0] else { continue }
+                let rowCount: Int64 = {
+                    if case .int(let rc) = row[2] { return max(0, rc) }
+                    if case .double(let d) = row[2] { return max(0, Int64(d)) }
+                    return 0
+                }()
+                let typeStr: String = {
+                    if case .string(let t) = row[3] { return t }
+                    return "BASE TABLE"
+                }()
+                let tableType = TableType(rawValue: typeStr) ?? .table
+                tables.append(TableInfo(
+                    schema: schema,
+                    name: name,
+                    oid: 1,
+                    estimatedRowCount: rowCount,
+                    tableType: tableType
+                ))
+            }
+            return tables
+        }
+
         let query = """
             SELECT c.relname,
                    c.oid,
@@ -143,6 +221,34 @@ public actor SchemaService {
     
     /// Fetches all columns for a given table.
     public func fetchColumns(schema: String, table: String) async throws -> [ColumnInfo] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let query = """
+                SELECT c.column_name, c.ordinal_position, c.data_type, c.is_nullable,
+                       c.column_default, c.character_maximum_length,
+                       CASE WHEN c.column_key = 'PRI' THEN true ELSE false END as is_primary_key
+                FROM information_schema.columns c
+                WHERE c.table_schema = '\(schema.mysqlEscapedLiteral)' AND c.table_name = '\(table.mysqlEscapedLiteral)'
+                ORDER BY c.ordinal_position;
+            """
+            let result = try await postgresService.executeQuery(query)
+            var columns: [ColumnInfo] = []
+            for row in result.rows {
+                if row.count >= 7,
+                   case .string(let name) = row[0],
+                   case .int(let ord) = row[1],
+                   case .string(let type) = row[2],
+                   case .string(let isNullStr) = row[3] {
+                    let isPrimary = row[6] == .bool(true)
+                    let isNullable = isNullStr.lowercased() == "yes"
+                    let defVal: String? = { if case .string(let s) = row[4] { return s } else { return nil } }()
+                    let maxLen: Int? = { if case .int(let i) = row[5] { return Int(i) } else { return nil } }()
+                    columns.append(ColumnInfo(name: name, ordinalPosition: Int(ord), dataType: type, isNullable: isNullable, defaultValue: defVal, isPrimaryKey: isPrimary, characterMaxLength: maxLen))
+                }
+            }
+            return columns
+        }
+
         let query = """
             SELECT c.column_name, c.ordinal_position, c.data_type, c.is_nullable, 
                    c.column_default, c.character_maximum_length,
@@ -178,6 +284,38 @@ public actor SchemaService {
     
     /// Fetches all indexes for a given table.
     public func fetchIndexes(schema: String, table: String) async throws -> [IndexInfo] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let query = """
+                SELECT index_name, non_unique, column_name
+                FROM information_schema.statistics
+                WHERE table_schema = '\(schema.mysqlEscapedLiteral)' AND table_name = '\(table.mysqlEscapedLiteral)'
+                ORDER BY index_name, seq_in_index ASC;
+            """
+            let result = try await postgresService.executeQuery(query)
+            var indexMap: [String: (isUnique: Bool, isPrimary: Bool, cols: [String])] = [:]
+            for row in result.rows {
+                if row.count >= 3,
+                   case .string(let idxName) = row[0] {
+                    let isUnique: Bool = {
+                        if case .int(let nu) = row[1] { return nu == 0 }
+                        return false
+                    }()
+                    let isPrimary = idxName.uppercased() == "PRIMARY"
+                    let colName = row[2].displayString
+                    if var existing = indexMap[idxName] {
+                        existing.cols.append(colName)
+                        indexMap[idxName] = existing
+                    } else {
+                        indexMap[idxName] = (isUnique: isUnique, isPrimary: isPrimary, cols: [colName])
+                    }
+                }
+            }
+            return indexMap.map { (name, val) in
+                IndexInfo(name: name, tableName: table, isUnique: val.isUnique, isPrimary: val.isPrimary, columns: val.cols)
+            }
+        }
+
         let query = """
             SELECT indexname, indexdef
             FROM pg_indexes
@@ -200,6 +338,29 @@ public actor SchemaService {
     
     /// Fetches all functions in a given schema.
     public func fetchFunctions(schema: String) async throws -> [FunctionInfo] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let query = """
+                SELECT routine_name, 1 AS oid, COALESCE(data_type, 'void') AS return_type, routine_type AS arg_types, 'SQL' AS lang
+                FROM information_schema.routines
+                WHERE routine_schema = '\(schema.mysqlEscapedLiteral)'
+                ORDER BY routine_name ASC;
+            """
+            let result = try await postgresService.executeQuery(query)
+            var functions: [FunctionInfo] = []
+            for row in result.rows {
+                if row.count >= 5,
+                   case .string(let name) = row[0],
+                   case .int(let oid) = row[1],
+                   case .string(let retType) = row[2],
+                   case .string(let args) = row[3],
+                   case .string(let lang) = row[4] {
+                    functions.append(FunctionInfo(schema: schema, name: name, oid: UInt32(oid), returnType: retType, argumentTypes: args, language: lang))
+                }
+            }
+            return functions
+        }
+
         let query = """
             SELECT p.proname, p.oid, pg_catalog.pg_get_function_result(p.oid) as return_type, 
                    pg_catalog.pg_get_function_arguments(p.oid) as arg_types, l.lanname
@@ -228,6 +389,20 @@ public actor SchemaService {
 
     /// Introspects the current connected user's privileges, roles, and object permissions.
     public func fetchUserPrivileges() async throws -> UserPrivilegeInfo {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let userRes = try? await postgresService.executeQuery("SELECT CURRENT_USER() AS cur_user;")
+            let curUser = userRes?.rows.first?.first?.displayString ?? "root@localhost"
+            return UserPrivilegeInfo(
+                username: curUser,
+                isSuperuser: true,
+                canCreateDb: true,
+                canCreateSchemaInDb: true,
+                schemaPrivileges: [:],
+                tablePrivileges: [:]
+            )
+        }
+
         // 1. Current user global capabilities
         let userQuery = """
             SELECT current_user,
@@ -311,6 +486,41 @@ public actor SchemaService {
 
     /// Fetches all schemas with ownership, table count, and disk size.
     public func fetchSchemaDetails() async throws -> [SchemaDetail] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let query = """
+                SELECT s.schema_name AS nspname,
+                       1 AS oid,
+                       'root' AS owner_name,
+                       COUNT(t.table_name) AS table_count,
+                       COALESCE(CONCAT(ROUND(SUM(t.data_length + t.index_length) / 1024 / 1024, 2), ' MB'), '0 MB') AS total_size,
+                       s.schema_name IN ('information_schema', 'performance_schema', 'sys', 'mysql') AS is_system,
+                       true AS can_create
+                FROM information_schema.schemata s
+                LEFT JOIN information_schema.tables t ON s.schema_name = t.table_schema
+                GROUP BY s.schema_name
+                ORDER BY is_system ASC, s.schema_name ASC;
+            """
+            let result = try await postgresService.executeQuery(query)
+            var details: [SchemaDetail] = []
+            for row in result.rows {
+                guard row.count >= 7, case .string(let name) = row[0] else { continue }
+                let count: Int = { if case .int(let c) = row[3] { return Int(c) }; return 0 }()
+                let size = row[4].displayString
+                let isSys = row[5] == .bool(true)
+                details.append(SchemaDetail(
+                    name: name,
+                    oid: 1,
+                    owner: "root",
+                    tableCount: count,
+                    totalSize: size,
+                    isSystem: isSys,
+                    canCreateTables: true
+                ))
+            }
+            return details
+        }
+
         let query = """
             SELECT n.nspname,
                    n.oid,
@@ -351,6 +561,51 @@ public actor SchemaService {
 
     /// Fetches detailed table metadata for a specific schema with accurate row counts.
     public func fetchTableDetails(schema: String) async throws -> [TableDetail] {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let query = """
+                SELECT t.table_name,
+                       1 AS oid,
+                       CASE t.table_type WHEN 'VIEW' THEN 'VIEW' ELSE 'BASE TABLE' END AS table_type,
+                       COALESCE(t.table_rows, 0) AS est_row_count,
+                       CONCAT(ROUND(COALESCE(t.data_length + t.index_length, 0) / 1024, 1), ' KB') AS total_size,
+                       CONCAT(ROUND(COALESCE(t.index_length, 0) / 1024, 1), ' KB') AS index_size,
+                       (SELECT COUNT(*) FROM information_schema.columns c WHERE c.table_schema = t.table_schema AND c.table_name = t.table_name) AS col_count,
+                       true AS is_owner,
+                       true AS can_insert,
+                       CASE t.table_type WHEN 'VIEW' THEN 'v' ELSE 'r' END AS relkind,
+                       true AS can_select,
+                       0 AS relpages
+                FROM information_schema.tables t
+                WHERE t.table_schema = '\(schema.mysqlEscapedLiteral)'
+                ORDER BY t.table_name ASC;
+            """
+            let result = try await postgresService.executeQuery(query)
+            var details: [TableDetail] = []
+            for row in result.rows {
+                guard row.count >= 9, case .string(let name) = row[0] else { continue }
+                let typeStr: String = { if case .string(let t) = row[2] { return t }; return "BASE TABLE" }()
+                let rowCount: Int64 = { if case .int(let rc) = row[3] { return max(0, rc) }; return 0 }()
+                let totalSize = row[4].displayString
+                let indexSize = row[5].displayString
+                let colCount: Int = { if case .int(let c) = row[6] { return Int(c) }; return 0 }()
+                let tableType = TableType(rawValue: typeStr) ?? .table
+                details.append(TableDetail(
+                    schema: schema,
+                    name: name,
+                    oid: 1,
+                    tableType: tableType,
+                    rowCount: rowCount,
+                    totalSize: totalSize,
+                    indexSize: indexSize,
+                    columnCount: colCount,
+                    isOwner: true,
+                    canInsert: true
+                ))
+            }
+            return details
+        }
+
         let query = """
             SELECT c.relname,
                    c.oid,
@@ -490,14 +745,22 @@ public actor SchemaService {
     /// Fetches live, accurate row counts for a batch of tables in a schema using optimized batch queries.
     public func fetchAccurateRowCounts(schema: String, tableNames: [String]) async -> [String: Int64] {
         guard !tableNames.isEmpty else { return [:] }
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
         var counts: [String: Int64] = [:]
 
         let chunkSize = 25
         for chunkStart in stride(from: 0, to: tableNames.count, by: chunkSize) {
             let chunk = Array(tableNames[chunkStart..<min(chunkStart + chunkSize, tableNames.count)])
-            let unionSql = chunk.map { tbl in
-                "SELECT '\(tbl.pgEscapedLiteral)' AS tbl, COUNT(*)::bigint AS cnt FROM \(schema.pgQuotedIdentifier).\(tbl.pgQuotedIdentifier)"
-            }.joined(separator: " UNION ALL ")
+            let unionSql: String
+            if engine == .mysql || engine == .mariadb {
+                unionSql = chunk.map { tbl in
+                    "SELECT '\(tbl.mysqlEscapedLiteral)' AS tbl, COUNT(*) AS cnt FROM \(schema.mysqlQuotedIdentifier).\(tbl.mysqlQuotedIdentifier)"
+                }.joined(separator: " UNION ALL ")
+            } else {
+                unionSql = chunk.map { tbl in
+                    "SELECT '\(tbl.pgEscapedLiteral)' AS tbl, COUNT(*)::bigint AS cnt FROM \(schema.pgQuotedIdentifier).\(tbl.pgQuotedIdentifier)"
+                }.joined(separator: " UNION ALL ")
+            }
 
             do {
                 let res = try await postgresService.executeQuery(unionSql)
@@ -528,6 +791,13 @@ public actor SchemaService {
 
     /// Creates a new schema.
     public func createSchema(name: String, authorization: String? = nil) async throws {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let sql = "CREATE DATABASE \(name.mysqlQuotedIdentifier);"
+            _ = try await postgresService.executeQuery(sql)
+            return
+        }
+
         var sql = "CREATE SCHEMA \(name.pgQuotedIdentifier)"
         if let auth = authorization, !auth.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             sql += " AUTHORIZATION \(auth.pgQuotedIdentifier)"
@@ -537,12 +807,25 @@ public actor SchemaService {
 
     /// Renames an existing schema.
     public func renameSchema(from oldName: String, to newName: String) async throws {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            // MySQL does not directly support RENAME DATABASE; create new and migrate or not supported
+            throw DatabaseServiceError.queryFailed("Renaming schemas/databases is not supported directly in MySQL.")
+        }
+
         let sql = "ALTER SCHEMA \(oldName.pgQuotedIdentifier) RENAME TO \(newName.pgQuotedIdentifier);"
         _ = try await postgresService.executeQuery(sql)
     }
 
     /// Drops a schema with optional CASCADE.
     public func dropSchema(name: String, cascade: Bool = false) async throws {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let sql = "DROP DATABASE \(name.mysqlQuotedIdentifier);"
+            _ = try await postgresService.executeQuery(sql)
+            return
+        }
+
         let mode = cascade ? "CASCADE" : "RESTRICT"
         let sql = "DROP SCHEMA \(name.pgQuotedIdentifier) \(mode);"
         _ = try await postgresService.executeQuery(sql)
@@ -553,12 +836,13 @@ public actor SchemaService {
     /// Creates a table with the given column definitions.
     public func createTable(schema: String, name: String, columns: [NewColumnDefinition]) async throws {
         guard !columns.isEmpty else {
-            throw PostgresServiceError.queryFailed("Cannot create a table with no columns.")
+            throw DatabaseServiceError.queryFailed("Cannot create a table with no columns.")
         }
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
 
         var colDefs: [String] = []
         for col in columns {
-            var def = "\(col.name.pgQuotedIdentifier) \(col.dataType)"
+            var def = "\(col.name.quotedIdentifier(for: engine)) \(col.dataType)"
             if col.isPrimaryKey {
                 def += " PRIMARY KEY"
             }
@@ -572,18 +856,31 @@ public actor SchemaService {
             colDefs.append(def)
         }
 
-        let sql = "CREATE TABLE \(schema.pgQuotedIdentifier).\(name.pgQuotedIdentifier) (\n  " + colDefs.joined(separator: ",\n  ") + "\n);"
+        let sql = "CREATE TABLE \(schema.quotedIdentifier(for: engine)).\(name.quotedIdentifier(for: engine)) (\n  " + colDefs.joined(separator: ",\n  ") + "\n);"
         _ = try await postgresService.executeQuery(sql)
     }
 
     /// Renames a table.
     public func renameTable(schema: String, from oldName: String, to newName: String) async throws {
-        let sql = "ALTER TABLE \(schema.pgQuotedIdentifier).\(oldName.pgQuotedIdentifier) RENAME TO \(newName.pgQuotedIdentifier);"
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        let sql: String
+        if engine == .mysql || engine == .mariadb {
+            sql = "RENAME TABLE \(schema.mysqlQuotedIdentifier).\(oldName.mysqlQuotedIdentifier) TO \(schema.mysqlQuotedIdentifier).\(newName.mysqlQuotedIdentifier);"
+        } else {
+            sql = "ALTER TABLE \(schema.pgQuotedIdentifier).\(oldName.pgQuotedIdentifier) RENAME TO \(newName.pgQuotedIdentifier);"
+        }
         _ = try await postgresService.executeQuery(sql)
     }
 
     /// Truncates a table.
     public func truncateTable(schema: String, name: String, restartIdentity: Bool = true, cascade: Bool = false) async throws {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let sql = "TRUNCATE TABLE \(schema.mysqlQuotedIdentifier).\(name.mysqlQuotedIdentifier);"
+            _ = try await postgresService.executeQuery(sql)
+            return
+        }
+
         var sql = "TRUNCATE TABLE \(schema.pgQuotedIdentifier).\(name.pgQuotedIdentifier)"
         if restartIdentity { sql += " RESTART IDENTITY" }
         if cascade { sql += " CASCADE" } else { sql += " RESTRICT" }
@@ -592,6 +889,13 @@ public actor SchemaService {
 
     /// Drops a table with optional CASCADE.
     public func dropTable(schema: String, name: String, cascade: Bool = false) async throws {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let sql = "DROP TABLE \(schema.mysqlQuotedIdentifier).\(name.mysqlQuotedIdentifier);"
+            _ = try await postgresService.executeQuery(sql)
+            return
+        }
+
         let mode = cascade ? "CASCADE" : "RESTRICT"
         let sql = "DROP TABLE \(schema.pgQuotedIdentifier).\(name.pgQuotedIdentifier) \(mode);"
         _ = try await postgresService.executeQuery(sql)
@@ -599,7 +903,7 @@ public actor SchemaService {
 
     // MARK: - Database Lifecycle (Create & Drop)
 
-    /// Creates a new PostgreSQL database with optional owner, encoding, template, and connection limit.
+    /// Creates a new database with optional owner, encoding, template, and connection limit.
     public func createDatabase(
         name: String,
         owner: String? = nil,
@@ -607,6 +911,13 @@ public actor SchemaService {
         template: String? = nil,
         connectionLimit: Int? = nil
     ) async throws {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let sql = "CREATE DATABASE \(name.mysqlQuotedIdentifier);"
+            _ = try await postgresService.executeQuery(sql)
+            return
+        }
+
         var sql = "CREATE DATABASE \(name.pgQuotedIdentifier)"
         var options: [String] = []
 
@@ -629,8 +940,15 @@ public actor SchemaService {
         _ = try await postgresService.executeQuery(sql)
     }
 
-    /// Drops a PostgreSQL database with optional FORCE mode (terminates active connections first).
+    /// Drops a database with optional FORCE mode (terminates active connections first).
     public func dropDatabase(name: String, force: Bool = false) async throws {
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .mysql || engine == .mariadb {
+            let sql = "DROP DATABASE \(name.mysqlQuotedIdentifier);"
+            _ = try await postgresService.executeQuery(sql)
+            return
+        }
+
         if force {
             // Terminate backends connected to the database to drop
             _ = try? await postgresService.executeQuery("""

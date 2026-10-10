@@ -27,7 +27,11 @@ public class DataGridViewModel {
     /// Compiled SQL WHERE expression sent to the backend.
     public var filterClause: String = ""
 
+    /// Set of column names hidden from view in the table view.
+    public var hiddenColumns: Set<String> = []
+
     private let postgresService: PostgresService
+    private var currentLoadRequestId: UUID = UUID()
 
     public init(postgresService: PostgresService) {
         self.postgresService = postgresService
@@ -68,6 +72,60 @@ public class DataGridViewModel {
         filterRules.removeAll(where: { $0.id == id })
     }
 
+    /// Checks whether there is an active filter on a specific column.
+    public func hasFilter(for column: String) -> Bool {
+        filterRules.contains { $0.column == column }
+    }
+
+    /// Gets the first active filter rule for a specific column, if any.
+    public func filterRule(for column: String) -> FilterRule? {
+        filterRules.first { $0.column == column }
+    }
+
+    /// Sets or updates a filter rule on a specific column and immediately executes the query.
+    public func setFilter(column: String, op: FilterOperator, value: String) async {
+        if let idx = filterRules.firstIndex(where: { $0.column == column }) {
+            filterRules[idx].op = op
+            filterRules[idx].value = value
+        } else {
+            filterRules.append(FilterRule(column: column, op: op, value: value))
+        }
+        await applyFilter()
+    }
+
+    /// Removes all filter rules on a specific column and immediately refreshes the query.
+    public func removeFilter(for column: String) async {
+        filterRules.removeAll(where: { $0.column == column })
+        await applyFilter()
+    }
+
+    // MARK: - Column Visibility Helpers
+
+    /// Toggles the visibility of a column in the table view.
+    public func toggleColumnVisibility(_ columnName: String) {
+        if hiddenColumns.contains(columnName) {
+            hiddenColumns.remove(columnName)
+        } else {
+            hiddenColumns.insert(columnName)
+        }
+    }
+
+    /// Checks whether a column is currently visible.
+    public func isColumnVisible(_ columnName: String) -> Bool {
+        !hiddenColumns.contains(columnName)
+    }
+
+    /// Restores visibility for all columns.
+    public func showAllColumns() {
+        hiddenColumns.removeAll()
+    }
+
+    /// Hides all columns except an optional kept column (defaults to first available).
+    public func hideAllColumns(except keepColumn: String? = nil) {
+        let kept = keepColumn ?? availableColumns.first ?? ""
+        hiddenColumns = Set(availableColumns.filter { $0 != kept })
+    }
+
     /// Clears all filter rules and reloads the unfiltered table data.
     public func clearFilters() async {
         filterRules.removeAll()
@@ -80,6 +138,9 @@ public class DataGridViewModel {
 
     /// Load data for a specific table (resets to page 0).
     public func loadTableData(schema: String, table: String) async {
+        let requestId = UUID()
+        currentLoadRequestId = requestId
+
         currentSchema = schema
         currentTable = table
         currentPage = 0
@@ -88,50 +149,69 @@ public class DataGridViewModel {
         error = nil
 
         do {
-            totalRows = try await postgresService.fetchTableRowCount(schema: schema, table: table, filterClause: filterClause)
-            result = try await postgresService.fetchTableData(
+            let fetchedTotalRows = try await postgresService.fetchTableRowCount(schema: schema, table: table, filterClause: filterClause)
+            guard currentLoadRequestId == requestId else { return }
+
+            let fetchedResult = try await postgresService.fetchTableData(
                 schema: schema,
                 table: table,
                 filterClause: filterClause,
                 limit: pageSize,
                 offset: 0
             )
-            if let res = result {
-                availableColumns = res.columns.map(\.name)
-            }
+            guard currentLoadRequestId == requestId else { return }
+
+            totalRows = fetchedTotalRows
+            result = fetchedResult
+            availableColumns = fetchedResult.columns.map(\.name)
+            isLoading = false
         } catch {
+            guard currentLoadRequestId == requestId else { return }
+            isLoading = false
+            if Task.isCancelled || error is CancellationError || error.localizedDescription.contains("Query cancelled") {
+                return
+            }
             self.error = error.localizedDescription
             result = nil
         }
-
-        isLoading = false
     }
 
     /// Applies the current structured filter rules and resets to page 0.
     public func applyFilter() async {
         guard let schema = currentSchema, let table = currentTable else { return }
+        let requestId = UUID()
+        currentLoadRequestId = requestId
+
         filterClause = buildFilterClause()
         currentPage = 0
         isLoading = true
         error = nil
 
         do {
-            totalRows = try await postgresService.fetchTableRowCount(schema: schema, table: table, filterClause: filterClause)
-            result = try await postgresService.fetchTableData(
+            let fetchedTotalRows = try await postgresService.fetchTableRowCount(schema: schema, table: table, filterClause: filterClause)
+            guard currentLoadRequestId == requestId else { return }
+
+            let fetchedResult = try await postgresService.fetchTableData(
                 schema: schema,
                 table: table,
                 filterClause: filterClause,
                 limit: pageSize,
                 offset: 0
             )
-            if let res = result {
-                availableColumns = res.columns.map(\.name)
-            }
+            guard currentLoadRequestId == requestId else { return }
+
+            totalRows = fetchedTotalRows
+            result = fetchedResult
+            availableColumns = fetchedResult.columns.map(\.name)
+            isLoading = false
         } catch {
+            guard currentLoadRequestId == requestId else { return }
+            isLoading = false
+            if Task.isCancelled || error is CancellationError || error.localizedDescription.contains("Query cancelled") {
+                return
+            }
             self.error = error.localizedDescription
         }
-
-        isLoading = false
     }
 
     /// Navigate to the next page.
@@ -155,24 +235,54 @@ public class DataGridViewModel {
     }
 
     private func fetchCurrentPage(schema: String, table: String) async {
+        let requestId = UUID()
+        currentLoadRequestId = requestId
+
         isLoading = true
         error = nil
 
         do {
-            result = try await postgresService.fetchTableData(
+            let fetchedResult = try await postgresService.fetchTableData(
                 schema: schema,
                 table: table,
                 filterClause: filterClause,
                 limit: pageSize,
                 offset: currentPage * pageSize
             )
-            if let res = result {
-                availableColumns = res.columns.map(\.name)
-            }
+            guard currentLoadRequestId == requestId else { return }
+
+            result = fetchedResult
+            availableColumns = fetchedResult.columns.map(\.name)
+            isLoading = false
         } catch {
+            guard currentLoadRequestId == requestId else { return }
+            isLoading = false
+            if Task.isCancelled || error is CancellationError || error.localizedDescription.contains("Query cancelled") {
+                return
+            }
             self.error = error.localizedDescription
         }
+    }
 
-        isLoading = false
+    // MARK: - Safe Mode Protections (FR-5)
+
+    /// Evaluates whether Safe Mode is active on the current active connection.
+    public func isSafeModeActive() async -> Bool {
+        let config = await postgresService.activeConfig
+        return config?.isSafeModeEffective ?? false
+    }
+
+    /// Evaluates safety for a proposed direct cell edit.
+    public func evaluateCellUpdateSafety(column: String, primaryKey: String, newValue: String) -> SQLSafetyCheckResult {
+        let table = currentTable ?? "table"
+        let sql = "UPDATE \"\(table)\" SET \"\(column)\" = '\(newValue)' WHERE id = \(primaryKey);"
+        return SQLSafetyAnalyzer.analyze(sql)
+    }
+
+    /// Evaluates safety for a proposed direct row deletion.
+    public func evaluateRowDeletionSafety(primaryKeyColumn: String, primaryKeyValue: String) -> SQLSafetyCheckResult {
+        let table = currentTable ?? "table"
+        let sql = "DELETE FROM \"\(table)\" WHERE \"\(primaryKeyColumn)\" = \(primaryKeyValue);"
+        return SQLSafetyAnalyzer.analyze(sql)
     }
 }

@@ -51,15 +51,13 @@ struct SchemaListView: View {
                 .help("Refresh Schemas")
 
                 // + New Schema Button (guarded by database-level CREATE privilege)
-                Button {
+                PostgraceButton(
+                    "New Schema",
+                    icon: "plus",
+                    variant: .primary
+                ) {
                     showingCreateSheet = true
-                } label: {
-                    Label("New Schema", systemImage: "plus")
-                        .fontWeight(.medium)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(PostgraceTheme.accentSky)
-                .controlSize(.regular)
                 .disabled(!canCreateSchema)
                 .help(canCreateSchema ? "Create a new schema" : "User '\(currentUser)' lacks CREATE privilege on this database")
             }
@@ -122,10 +120,10 @@ struct SchemaListView: View {
                                 Text("SYSTEM")
                                     .font(.system(size: 8, weight: .bold))
                                     .foregroundColor(.secondary)
-                                    .padding(.horizontal, 3)
-                                    .padding(.vertical, 1)
-                                    .background(Color.secondary.opacity(0.15))
-                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1.5)
+                                    .background(PostgraceTheme.surfaceHover)
+                                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
                             }
                         }
                     }
@@ -155,20 +153,20 @@ struct SchemaListView: View {
                         HStack(spacing: 4) {
                             if schema.canCreateTables {
                                 Text("CREATE")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color.green.opacity(0.15))
-                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(PostgraceTheme.accentSageText)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(PostgraceTheme.accentSageMuted)
+                                    .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
                             }
                             Text("USAGE")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.blue)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.blue.opacity(0.15))
-                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(PostgraceTheme.purpleSuperText)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(PostgraceTheme.purpleSuperMuted)
+                                .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
                         }
                     }
                     .width(min: 110, ideal: 130)
@@ -275,21 +273,20 @@ struct SchemaListView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("New Schema Name")
                     .font(.caption.bold())
-                TextField("New Name", text: $newSchemaName)
-                    .textFieldStyle(.roundedBorder)
+                PostgraceTextField("New Name", text: $newSchemaName)
             }
 
             Spacer()
 
             HStack {
-                Button("Cancel") {
+                PostgraceButton("Cancel", variant: .secondary) {
                     schemaToRename = nil
                 }
                 .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                Button("Rename Schema") {
+                PostgraceButton("Rename Schema", variant: .primary) {
                     let oldName = schema.name
                     let target = newSchemaName.trimmingCharacters(in: .whitespacesAndNewlines)
                     schemaToRename = nil
@@ -301,7 +298,6 @@ struct SchemaListView: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(newSchemaName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newSchemaName == schema.name)
             }

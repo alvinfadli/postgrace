@@ -6,22 +6,181 @@ import AppKit
 struct DataGridView: View {
     let queryResult: QueryResult
 
+    @Environment(DataGridViewModel.self) private var dataGridViewModel
+
     @State private var columnWidths: [String: CGFloat] = [:]
     @State private var sortColumn: String? = nil
     @State private var sortAscending: Bool = true
     @State private var sortedRows: [[CellValue]] = []
 
+    // Column filtering & visibility state
+    @State private var activeFilterColumn: String? = nil
+    @State private var hoveredColumnHeader: String? = nil
+    @State private var showingColumnVisibilityPopover: Bool = false
+    @State private var localHiddenColumns: Set<String> = []
+    @State private var localColumnFilters: [String: (FilterOperator, String)] = [:]
+
+    // Cell selection & copy feedback state
+    @State private var selectedCell: SelectedGridCell? = nil
+    @State private var copiedToastMessage: String? = nil
+    @State private var toastDismissTask: Task<Void, Never>? = nil
+
+    private var isTableContext: Bool {
+        dataGridViewModel.currentTable != nil
+    }
+
+    private var currentHiddenColumns: Set<String> {
+        isTableContext ? dataGridViewModel.hiddenColumns : localHiddenColumns
+    }
+
+    private var hasHiddenColumns: Bool {
+        !currentHiddenColumns.isEmpty
+    }
+
+    var visibleColumns: [ResultColumn] {
+        queryResult.columns.filter { !currentHiddenColumns.contains($0.name) }
+    }
+
+    private func toggleColumnVisibility(_ columnName: String) {
+        if isTableContext {
+            dataGridViewModel.toggleColumnVisibility(columnName)
+        } else {
+            if localHiddenColumns.contains(columnName) {
+                localHiddenColumns.remove(columnName)
+            } else {
+                localHiddenColumns.insert(columnName)
+            }
+        }
+    }
+
+    private func showAllColumns() {
+        if isTableContext {
+            dataGridViewModel.showAllColumns()
+        } else {
+            localHiddenColumns.removeAll()
+        }
+    }
+
+    private func hideAllColumns() {
+        if isTableContext {
+            dataGridViewModel.hideAllColumns()
+        } else {
+            let keep = queryResult.columns.first?.name ?? ""
+            localHiddenColumns = Set(queryResult.columns.map(\.name).filter { $0 != keep })
+        }
+    }
+
+    private func isColumnFiltered(_ columnName: String) -> Bool {
+        if isTableContext {
+            return dataGridViewModel.hasFilter(for: columnName)
+        }
+        return localColumnFilters[columnName] != nil
+    }
+
+    private func currentFilterRule(for columnName: String) -> FilterRule? {
+        if isTableContext {
+            return dataGridViewModel.filterRule(for: columnName)
+        }
+        if let local = localColumnFilters[columnName] {
+            return FilterRule(column: columnName, op: local.0, value: local.1)
+        }
+        return nil
+    }
+
+    private func applyColumnFilter(column: String, op: FilterOperator, value: String) {
+        if isTableContext {
+            Task {
+                await dataGridViewModel.setFilter(column: column, op: op, value: value)
+            }
+        } else {
+            localColumnFilters[column] = (op, value)
+            updateSortedRows()
+        }
+    }
+
+    private func clearColumnFilter(column: String) {
+        if isTableContext {
+            Task {
+                await dataGridViewModel.removeFilter(for: column)
+            }
+        } else {
+            localColumnFilters.removeValue(forKey: column)
+            updateSortedRows()
+        }
+    }
+
     private func updateSortedRows() {
+        var baseRows = queryResult.rows
+
+        // Apply local filtering when not in table browse context
+        if !isTableContext && !localColumnFilters.isEmpty {
+            baseRows = baseRows.filter { row in
+                for (colName, filter) in localColumnFilters {
+                    guard let colIndex = queryResult.columns.firstIndex(where: { $0.name == colName }),
+                          colIndex < row.count else { continue }
+                    let cellValue = row[colIndex]
+                    if !matchesLocalFilter(cellValue: cellValue, op: filter.0, target: filter.1) {
+                        return false
+                    }
+                }
+                return true
+            }
+        }
+
         guard let sortCol = sortColumn,
               let colIndex = queryResult.columns.firstIndex(where: { $0.name == sortCol }) else {
-            sortedRows = queryResult.rows
+            sortedRows = baseRows
             return
         }
-        sortedRows = queryResult.rows.sorted { row1, row2 in
+        sortedRows = baseRows.sorted { row1, row2 in
             let val1 = colIndex < row1.count ? row1[colIndex] : .null
             let val2 = colIndex < row2.count ? row2[colIndex] : .null
             let isLess = compareCells(val1, val2)
             return sortAscending ? isLess : !isLess
+        }
+    }
+
+    private func matchesLocalFilter(cellValue: CellValue, op: FilterOperator, target: String) -> Bool {
+        let str = cellValue.displayString
+        let trimmedTarget = target.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch op {
+        case .isNull:
+            return cellValue == .null
+        case .isNotNull:
+            return cellValue != .null
+        case .equals:
+            return str.localizedCaseInsensitiveCompare(trimmedTarget) == .orderedSame
+        case .notEquals:
+            return str.localizedCaseInsensitiveCompare(trimmedTarget) != .orderedSame
+        case .contains:
+            return str.localizedCaseInsensitiveContains(trimmedTarget)
+        case .startsWith:
+            return str.lowercased().hasPrefix(trimmedTarget.lowercased())
+        case .endsWith:
+            return str.lowercased().hasSuffix(trimmedTarget.lowercased())
+        case .greaterThan:
+            if let numCell = Double(str), let numTarget = Double(trimmedTarget) {
+                return numCell > numTarget
+            }
+            return str.localizedStandardCompare(trimmedTarget) == .orderedDescending
+        case .lessThan:
+            if let numCell = Double(str), let numTarget = Double(trimmedTarget) {
+                return numCell < numTarget
+            }
+            return str.localizedStandardCompare(trimmedTarget) == .orderedAscending
+        case .greaterThanOrEqual:
+            if let numCell = Double(str), let numTarget = Double(trimmedTarget) {
+                return numCell >= numTarget
+            }
+            let comp = str.localizedStandardCompare(trimmedTarget)
+            return comp == .orderedDescending || comp == .orderedSame
+        case .lessThanOrEqual:
+            if let numCell = Double(str), let numTarget = Double(trimmedTarget) {
+                return numCell <= numTarget
+            }
+            let comp = str.localizedStandardCompare(trimmedTarget)
+            return comp == .orderedAscending || comp == .orderedSame
         }
     }
 
@@ -49,6 +208,35 @@ struct DataGridView: View {
                 footer
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay(alignment: .bottom) {
+                if let toast = copiedToastMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(PostgraceTheme.emeraldRw)
+                            .font(.system(size: 11, weight: .bold))
+                        Text(toast)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.primary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(PostgraceTheme.borderSubtle, lineWidth: 1))
+                    .shadow(color: Color.black.opacity(0.18), radius: 6, y: 2)
+                    .padding(.bottom, 36)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+            }
+            .background {
+                // Invisible button for ⌘C keyboard shortcut
+                Button("") {
+                    copySelectedCellOrRow()
+                }
+                .keyboardShortcut("c", modifiers: [.command])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+            }
         }
     }
 
@@ -81,14 +269,31 @@ struct DataGridView: View {
                                 DataGridRowView(
                                     rowIndex: rowIndex,
                                     row: sortedRows[rowIndex],
-                                    columns: queryResult.columns,
+                                    columns: visibleColumns,
+                                    allColumns: queryResult.columns,
                                     columnWidths: columnWidths,
                                     defaultWidthForColumn: { defaultWidth(for: $0) },
                                     availableWidth: proxy.size.width,
-                                    onCopyCell: { copyToPasteboard($0) },
-                                    onCopyColumn: { copyToPasteboard($0) },
-                                    onCopyRowCSV: { copyRowAsCSV($0) },
-                                    onCopyRowJSON: { copyRowAsJSON($0) }
+                                    selectedCell: selectedCell,
+                                    onSelectCell: { cell in
+                                        selectedCell = cell
+                                    },
+                                    onCopyCell: { copyCellToClipboard($0) },
+                                    onCopyColumn: {
+                                        copyToPasteboard($0)
+                                        showCopiedToast("Column \($0)")
+                                    },
+                                    onCopyRowCSV: {
+                                        copyRowAsCSV($0)
+                                        showCopiedToast("Row CSV")
+                                    },
+                                    onCopyRowJSON: {
+                                        copyRowAsJSON($0)
+                                        showCopiedToast("Row JSON")
+                                    },
+                                    onFilterCell: { col, op, val in
+                                        applyColumnFilter(column: col, op: op, value: val)
+                                    }
                                 )
                             }
                         } header: {
@@ -136,8 +341,8 @@ struct DataGridView: View {
                     alignment: .trailing
                 )
 
-            // Resizable column headers
-            ForEach(Array(queryResult.columns.enumerated()), id: \.offset) { colIndex, column in
+            // Resizable visible column headers
+            ForEach(Array(visibleColumns.enumerated()), id: \.element.name) { colIndex, column in
                 let width = widthForColumn(at: colIndex, column: column)
                 headerCell(column: column, colIndex: colIndex, width: width)
             }
@@ -154,11 +359,14 @@ struct DataGridView: View {
         )
     }
 
-    // MARK: - Header Cell with Resize Handle & Sort
+    // MARK: - Header Cell with Resize Handle, Sort, and Column Filter
 
     @ViewBuilder
     private func headerCell(column: ResultColumn, colIndex: Int, width: CGFloat) -> some View {
+        let isFiltered = isColumnFiltered(column.name)
+
         HStack(spacing: 0) {
+            // Sort Button
             Button {
                 if sortColumn == column.name {
                     if sortAscending {
@@ -193,7 +401,7 @@ struct DataGridView: View {
                     }
                 }
                 .padding(.leading, 8)
-                .padding(.trailing, 4)
+                .padding(.trailing, 2)
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
@@ -201,6 +409,41 @@ struct DataGridView: View {
             .help("Click to sort by \(column.name)")
 
             Spacer(minLength: 0)
+
+            // Column Filter Button with Interactive Popover
+            Button {
+                activeFilterColumn = (activeFilterColumn == column.name) ? nil : column.name
+            } label: {
+                Image(systemName: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                    .font(.system(size: 9, weight: isFiltered ? .bold : .medium))
+                    .foregroundColor(isFiltered ? PostgraceTheme.accentSky : .secondary.opacity(hoveredColumnHeader == column.name ? 0.9 : 0.45))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isFiltered ? "Column '\(column.name)' has active filter" : "Filter column '\(column.name)'")
+            .popover(
+                isPresented: Binding(
+                    get: { activeFilterColumn == column.name },
+                    set: { if !$0 { activeFilterColumn = nil } }
+                ),
+                arrowEdge: .bottom
+            ) {
+                ColumnFilterPopoverView(
+                    columnName: column.name,
+                    dataTypeName: column.dataTypeName,
+                    currentRule: currentFilterRule(for: column.name),
+                    onApply: { op, val in
+                        applyColumnFilter(column: column.name, op: op, value: val)
+                        activeFilterColumn = nil
+                    },
+                    onClear: {
+                        clearColumnFilter(column: column.name)
+                        activeFilterColumn = nil
+                    }
+                )
+            }
 
             // High-performance AppKit column resizer handle
             ColumnResizeHandle(
@@ -215,9 +458,71 @@ struct DataGridView: View {
             .frame(width: 8, height: 32)
         }
         .frame(width: width, alignment: .leading)
+        .onHover { hovering in
+            if hovering {
+                hoveredColumnHeader = column.name
+            } else if hoveredColumnHeader == column.name {
+                hoveredColumnHeader = nil
+            }
+        }
+        .contextMenu {
+            Button {
+                activeFilterColumn = column.name
+            } label: {
+                Label("Filter by '\(column.name)'…", systemImage: "line.3.horizontal.decrease")
+            }
+
+            if isFiltered {
+                Button {
+                    clearColumnFilter(column: column.name)
+                } label: {
+                    Label("Clear Filter on '\(column.name)'", systemImage: "xmark.circle")
+                }
+            }
+
+            Divider()
+
+            Button {
+                sortColumn = column.name
+                sortAscending = true
+            } label: {
+                Label("Sort Ascending", systemImage: "arrow.up")
+            }
+
+            Button {
+                sortColumn = column.name
+                sortAscending = false
+            } label: {
+                Label("Sort Descending", systemImage: "arrow.down")
+            }
+
+            if sortColumn == column.name {
+                Button {
+                    sortColumn = nil
+                } label: {
+                    Label("Clear Sort", systemImage: "arrow.up.arrow.down")
+                }
+            }
+
+            Divider()
+
+            Button {
+                toggleColumnVisibility(column.name)
+            } label: {
+                Label("Hide Column '\(column.name)'", systemImage: "eye.slash")
+            }
+
+            if hasHiddenColumns {
+                Button {
+                    showAllColumns()
+                } label: {
+                    Label("Show All Columns", systemImage: "eye")
+                }
+            }
+        }
     }
 
-    // MARK: - Footer with Export Actions
+    // MARK: - Footer with Columns Visibility & Export Actions
 
     private var footer: some View {
         HStack(spacing: 8) {
@@ -225,14 +530,64 @@ struct DataGridView: View {
                 .font(.system(size: 11, design: .monospaced))
             Text("•")
                 .foregroundColor(PostgraceTheme.border)
-            Text("\(queryResult.columns.count) columns")
-                .font(.system(size: 11, design: .monospaced))
+
+            // Column Visibility Button & Popover
+            Button {
+                showingColumnVisibilityPopover.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 9))
+                    Text(hasHiddenColumns ? "\(visibleColumns.count) of \(queryResult.columns.count) columns" : "\(queryResult.columns.count) columns")
+                        .font(.system(size: 11, design: .monospaced))
+                }
+                .foregroundColor(hasHiddenColumns ? PostgraceTheme.accentSky : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Configure column visibility in table view")
+            .popover(isPresented: $showingColumnVisibilityPopover, arrowEdge: .top) {
+                ColumnVisibilityPopoverView(
+                    allColumns: queryResult.columns,
+                    hiddenColumns: currentHiddenColumns,
+                    onToggleColumn: { toggleColumnVisibility($0) },
+                    onShowAll: { showAllColumns() },
+                    onHideAll: { hideAllColumns() }
+                )
+            }
+
             if queryResult.executionTime > 0 {
                 Text("•")
                     .foregroundColor(PostgraceTheme.border)
                 Text(String(format: "%.3f s", queryResult.executionTime))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(PostgraceTheme.emeraldRw)
+            }
+
+            if let sel = selectedCell, sel.rowIndex < sortedRows.count {
+                let row = sortedRows[sel.rowIndex]
+                if let colIdx = queryResult.columns.firstIndex(where: { $0.name == sel.columnName }),
+                   colIdx < row.count {
+                    let val = row[colIdx].displayString
+                    Text("•")
+                        .foregroundColor(PostgraceTheme.border)
+                    HStack(spacing: 4) {
+                        Text("Selected:")
+                            .foregroundColor(.secondary)
+                        Text("\(sel.columnName) = \"\(val.count > 25 ? String(val.prefix(25)) + "…" : val)\"")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.primary)
+
+                        Button {
+                            copyCellToClipboard(val)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10))
+                                .foregroundColor(PostgraceTheme.accentSky)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy selected cell value (⌘C)")
+                    }
+                }
             }
 
             Spacer()
@@ -280,28 +635,72 @@ struct DataGridView: View {
 
     // MARK: - Export & Clipboard Helpers
 
+    private func copySelectedCellOrRow() {
+        if let sel = selectedCell, sel.rowIndex < sortedRows.count {
+            let row = sortedRows[sel.rowIndex]
+            if let colIdx = queryResult.columns.firstIndex(where: { $0.name == sel.columnName }),
+               colIdx < row.count {
+                let text = row[colIdx].displayString
+                copyCellToClipboard(text)
+                return
+            }
+        }
+        copyAsCSV()
+    }
+
+    private func copyCellToClipboard(_ text: String, notify: Bool = true) {
+        copyToPasteboard(text)
+        if notify {
+            showCopiedToast(text.isEmpty ? "(empty)" : text)
+        }
+    }
+
+    private func showCopiedToast(_ content: String) {
+        toastDismissTask?.cancel()
+        let preview = content.count > 25 ? String(content.prefix(25)) + "…" : content
+        withAnimation(.easeOut(duration: 0.15)) {
+            copiedToastMessage = "Copied \"\(preview)\""
+        }
+        toastDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            if !Task.isCancelled {
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        copiedToastMessage = nil
+                    }
+                }
+            }
+        }
+    }
+
     private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func copyRowAsCSV(_ row: [CellValue]) {
-        let line = row.map { formatCSVCell($0.displayString) }.joined(separator: ",")
+        let cols = visibleColumns.isEmpty ? queryResult.columns : visibleColumns
+        let line = cols.map { col -> String in
+            guard let idx = queryResult.columns.firstIndex(where: { $0.name == col.name }),
+                  idx < row.count else { return "" }
+            return formatCSVCell(row[idx].displayString)
+        }.joined(separator: ",")
         copyToPasteboard(line)
     }
 
     private func copyRowAsJSON(_ row: [CellValue]) {
+        let cols = visibleColumns.isEmpty ? queryResult.columns : visibleColumns
         var dict: [String: Any] = [:]
-        for (i, col) in queryResult.columns.enumerated() {
-            if i < row.count {
-                let cell = row[i]
-                switch cell {
-                case .null: dict[col.name] = NSNull()
-                case .int(let v): dict[col.name] = v
-                case .double(let v): dict[col.name] = v
-                case .bool(let v): dict[col.name] = v
-                default: dict[col.name] = cell.displayString
-                }
+        for col in cols {
+            guard let idx = queryResult.columns.firstIndex(where: { $0.name == col.name }),
+                  idx < row.count else { continue }
+            let cell = row[idx]
+            switch cell {
+            case .null: dict[col.name] = NSNull()
+            case .int(let v): dict[col.name] = v
+            case .double(let v): dict[col.name] = v
+            case .bool(let v): dict[col.name] = v
+            default: dict[col.name] = cell.displayString
             }
         }
         if let data = try? JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted),
@@ -316,19 +715,20 @@ struct DataGridView: View {
     }
 
     private func copyAsJSON() {
+        let cols = visibleColumns.isEmpty ? queryResult.columns : visibleColumns
         var rowsArray: [[String: Any]] = []
         for row in sortedRows {
             var dict: [String: Any] = [:]
-            for (i, col) in queryResult.columns.enumerated() {
-                if i < row.count {
-                    let cell = row[i]
-                    switch cell {
-                    case .null: dict[col.name] = NSNull()
-                    case .int(let v): dict[col.name] = v
-                    case .double(let v): dict[col.name] = v
-                    case .bool(let v): dict[col.name] = v
-                    default: dict[col.name] = cell.displayString
-                    }
+            for col in cols {
+                guard let idx = queryResult.columns.firstIndex(where: { $0.name == col.name }),
+                      idx < row.count else { continue }
+                let cell = row[idx]
+                switch cell {
+                case .null: dict[col.name] = NSNull()
+                case .int(let v): dict[col.name] = v
+                case .double(let v): dict[col.name] = v
+                case .bool(let v): dict[col.name] = v
+                default: dict[col.name] = cell.displayString
                 }
             }
             rowsArray.append(dict)
@@ -340,10 +740,16 @@ struct DataGridView: View {
     }
 
     private func generateCSVString() -> String {
+        let cols = visibleColumns.isEmpty ? queryResult.columns : visibleColumns
         var lines: [String] = []
-        lines.append(queryResult.columns.map { formatCSVCell($0.name) }.joined(separator: ","))
+        lines.append(cols.map { formatCSVCell($0.name) }.joined(separator: ","))
         for row in sortedRows {
-            lines.append(row.map { formatCSVCell($0.displayString) }.joined(separator: ","))
+            let rowCells = cols.map { col -> String in
+                guard let idx = queryResult.columns.firstIndex(where: { $0.name == col.name }),
+                      idx < row.count else { return "" }
+                return formatCSVCell(row[idx].displayString)
+            }
+            lines.append(rowCells.joined(separator: ","))
         }
         return lines.joined(separator: "\n")
     }
@@ -389,19 +795,30 @@ struct DataGridView: View {
 
 // MARK: - Dedicated High-Performance Data Grid Row View
 
+/// Represents a selected cell in the data grid.
+struct SelectedGridCell: Equatable, Sendable {
+    let rowIndex: Int
+    let columnName: String
+}
+
 struct DataGridRowView: View {
     let rowIndex: Int
     let row: [CellValue]
     let columns: [ResultColumn]
+    let allColumns: [ResultColumn]
     let columnWidths: [String: CGFloat]
     let defaultWidthForColumn: (ResultColumn) -> CGFloat
     let availableWidth: CGFloat
+    let selectedCell: SelectedGridCell?
+    let onSelectCell: (SelectedGridCell) -> Void
     let onCopyCell: (String) -> Void
     let onCopyColumn: (String) -> Void
     let onCopyRowCSV: ([CellValue]) -> Void
     let onCopyRowJSON: ([CellValue]) -> Void
+    let onFilterCell: (String, FilterOperator, String) -> Void
 
     @State private var isHovered: Bool = false
+    @State private var hoveredColumn: String? = nil
 
     var body: some View {
         let zebraBg = rowIndex % 2 == 0 ? PostgraceTheme.canvas : PostgraceTheme.surface.opacity(0.35)
@@ -422,22 +839,47 @@ struct DataGridRowView: View {
                     alignment: .trailing
                 )
 
-            // Cell values
-            ForEach(0..<row.count, id: \.self) { colIndex in
-                let cellValue = row[colIndex]
-                let column = columns.indices.contains(colIndex) ? columns[colIndex] : ResultColumn(name: "col", dataTypeOID: 0, dataTypeName: "")
+            // Cell values for visible columns
+            ForEach(columns, id: \.name) { column in
+                let colIndex = allColumns.firstIndex(where: { $0.name == column.name }) ?? 0
+                let cellValue = colIndex < row.count ? row[colIndex] : .null
                 let width = columnWidths[column.name] ?? defaultWidthForColumn(column)
+                let isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.columnName == column.name
+                let isCellHovered = hoveredColumn == column.name
 
-                cellView(for: cellValue, column: column)
+                cellView(for: cellValue, column: column, isSelected: isSelected, isHovered: isCellHovered)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .frame(width: width, alignment: .leading)
+                    .background(
+                        isSelected ? PostgraceTheme.accentSky.opacity(0.12) : Color.clear
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 2)
+                            .stroke(isSelected ? PostgraceTheme.accentSky : Color.clear, lineWidth: 1.5)
+                    )
                     .overlay(
                         Rectangle()
                             .frame(width: PostgraceTheme.hairlineBorder)
                             .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.4)),
                         alignment: .trailing
                     )
+                    .onHover { hovering in
+                        if hovering {
+                            hoveredColumn = column.name
+                        } else if hoveredColumn == column.name {
+                            hoveredColumn = nil
+                        }
+                    }
+                    .simultaneousGesture(
+                        TapGesture(count: 2).onEnded {
+                            onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
+                            onCopyCell(cellValue.displayString)
+                        }
+                    )
+                    .onTapGesture {
+                        onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
+                    }
             }
 
             Spacer(minLength: 0)
@@ -464,24 +906,90 @@ struct DataGridRowView: View {
     }
 
     @ViewBuilder
-    private func cellView(for cellValue: CellValue, column: ResultColumn) -> some View {
-        cellContent(for: cellValue)
-            .contentShape(Rectangle())
-            .contextMenu {
-                Button("Copy Cell Value") {
+    private func cellView(for cellValue: CellValue, column: ResultColumn, isSelected: Bool, isHovered: Bool) -> some View {
+        HStack(spacing: 4) {
+            cellContent(for: cellValue)
+
+            Spacer(minLength: 0)
+
+            if isHovered || isSelected {
+                Button {
+                    onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
                     onCopyCell(cellValue.displayString)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 9))
+                        .foregroundColor(isSelected ? PostgraceTheme.accentSky : .secondary)
+                        .padding(2.5)
+                        .background(PostgraceTheme.surfaceElevated.opacity(0.9))
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
-                Button("Copy Column Name (\(column.name))") {
-                    onCopyColumn(column.name)
-                }
-                Divider()
-                Button("Copy Row as CSV") {
-                    onCopyRowCSV(row)
-                }
-                Button("Copy Row as JSON") {
-                    onCopyRowJSON(row)
+                .buttonStyle(.plain)
+                .help("Copy cell value (⌘C)")
+            }
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            // Prominent Copy Cell Value at the top
+            Button {
+                onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
+                onCopyCell(cellValue.displayString)
+            } label: {
+                Label("Copy Cell Value", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                onCopyColumn(column.name)
+            } label: {
+                Label("Copy Column Name (\(column.name))", systemImage: "text.quote")
+            }
+
+            Divider()
+
+            // Quick Filter Actions
+            Button {
+                onFilterCell(column.name, .equals, cellValue.displayString)
+            } label: {
+                Label("Filter: \(column.name) = '\(cellValue.displayString)'", systemImage: "line.3.horizontal.decrease")
+            }
+
+            Button {
+                onFilterCell(column.name, .notEquals, cellValue.displayString)
+            } label: {
+                Label("Filter: \(column.name) ≠ '\(cellValue.displayString)'", systemImage: "line.3.horizontal.decrease")
+            }
+
+            if !cellValue.displayString.isEmpty && cellValue != .null {
+                Button {
+                    onFilterCell(column.name, .contains, cellValue.displayString)
+                } label: {
+                    Label("Filter: \(column.name) contains '\(cellValue.displayString)'", systemImage: "text.magnifyingglass")
                 }
             }
+
+            if cellValue == .null {
+                Button {
+                    onFilterCell(column.name, .isNull, "")
+                } label: {
+                    Label("Filter: \(column.name) IS NULL", systemImage: "line.3.horizontal.decrease")
+                }
+            } else {
+                Button {
+                    onFilterCell(column.name, .isNotNull, "")
+                } label: {
+                    Label("Filter: \(column.name) IS NOT NULL", systemImage: "line.3.horizontal.decrease")
+                }
+            }
+
+            Divider()
+
+            Button("Copy Row as CSV") {
+                onCopyRowCSV(row)
+            }
+            Button("Copy Row as JSON") {
+                onCopyRowJSON(row)
+            }
+        }
     }
 
     @ViewBuilder

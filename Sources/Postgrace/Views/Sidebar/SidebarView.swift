@@ -17,36 +17,10 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 1. FILTER TABLES QUICK INPUT
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.caption2)
-                TextField("Filter tables…", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .foregroundColor(.primary)
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                            .font(.caption2)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(PostgraceTheme.surfaceElevated)
-            .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
-                    .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
-            )
-            .padding(.horizontal, 10)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+            PostgraceSearchField("Filter tables…", text: $searchText)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
 
             // 2. QUICK ACCESS: DATABASES & SCHEMAS CATALOGS
             HStack(spacing: 6) {
@@ -67,6 +41,7 @@ struct SidebarView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 5)
                     .background(PostgraceTheme.surfaceElevated)
+                    .contentShape(Rectangle())
                     .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
@@ -74,6 +49,7 @@ struct SidebarView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .contentShape(Rectangle())
 
                 Button {
                     tabViewModel.openSchemasTab()
@@ -92,6 +68,7 @@ struct SidebarView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 5)
                     .background(PostgraceTheme.surfaceElevated)
+                    .contentShape(Rectangle())
                     .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusButton, style: .continuous)
@@ -99,6 +76,7 @@ struct SidebarView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .contentShape(Rectangle())
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 8)
@@ -209,6 +187,16 @@ struct SidebarView: View {
         }
         .frame(maxWidth: .infinity)
         .background(PostgraceTheme.surface)
+        .onAppear {
+            if let first = schemaViewModel.schemas.first, !expandedSchemas.contains(first.name) {
+                expandedSchemas.insert(first.name)
+            }
+        }
+        .onChange(of: schemaViewModel.schemas) { _, newSchemas in
+            if let first = newSchemas.first, !expandedSchemas.contains(first.name) {
+                expandedSchemas.insert(first.name)
+            }
+        }
         .sheet(item: Binding(
             get: { schemaForNewTable.map { IdentifiableString(value: $0) } },
             set: { schemaForNewTable = $0?.value }
@@ -247,6 +235,7 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -383,12 +372,28 @@ struct SidebarView: View {
     }
 
     private func colorForTableType(_ type: TableType, isActive: Bool) -> Color {
-        if isActive { return PostgraceTheme.accentSky }
+        if isActive { return PostgraceTheme.accentSage }
         switch type {
         case .table: return .secondary
-        case .view: return PostgraceTheme.purpleSuper
-        case .materializedView: return PostgraceTheme.purpleSuper
-        case .foreignTable: return PostgraceTheme.amberRo
+        case .view: return PostgraceTheme.purpleSuperText
+        case .materializedView: return PostgraceTheme.purpleSuperText
+        case .foreignTable: return PostgraceTheme.amberRoText
+        }
+    }
+
+    private func badgeBackgroundForTableType(_ type: TableType) -> Color {
+        switch type {
+        case .table: return PostgraceTheme.accentSageMuted
+        case .view, .materializedView: return PostgraceTheme.purpleSuperMuted
+        case .foreignTable: return PostgraceTheme.pastelSkyMuted
+        }
+    }
+
+    private func badgeForegroundForTableType(_ type: TableType) -> Color {
+        switch type {
+        case .table: return PostgraceTheme.accentSageText
+        case .view, .materializedView: return PostgraceTheme.purpleSuperText
+        case .foreignTable: return PostgraceTheme.pastelSkyText
         }
     }
 
@@ -426,12 +431,12 @@ struct SidebarView: View {
                     Spacer(minLength: 0)
 
                     Text(table.tableType == .table ? "TABLE" : table.tableType.rawValue.uppercased())
-                        .font(.system(size: 8, weight: .bold))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(PostgraceTheme.accentSkyMuted)
-                        .foregroundColor(PostgraceTheme.accentSky)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(badgeBackgroundForTableType(table.tableType))
+                        .foregroundColor(badgeForegroundForTableType(table.tableType))
+                        .clipShape(RoundedRectangle(cornerRadius: PostgraceTheme.cornerRadiusBadge, style: .continuous))
                 }
 
                 Divider()
@@ -532,6 +537,7 @@ struct SidebarTableRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3.5)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             isActive ? PostgraceTheme.accentSkyMuted : (isHovered ? PostgraceTheme.surfaceHover : Color.clear)
         )
@@ -594,12 +600,27 @@ struct SidebarTableRowView: View {
     }
 
     private func colorForTableType(_ type: TableType, isActive: Bool) -> Color {
-        if isActive { return PostgraceTheme.accentSky }
+        if isActive { return PostgraceTheme.accentSage }
         switch type {
         case .table: return .secondary
-        case .view: return PostgraceTheme.purpleSuper
-        case .materializedView: return PostgraceTheme.purpleSuper
-        case .foreignTable: return PostgraceTheme.amberRo
+        case .view, .materializedView: return PostgraceTheme.purpleSuperText
+        case .foreignTable: return PostgraceTheme.amberRoText
+        }
+    }
+
+    private func badgeBackgroundForTableType(_ type: TableType) -> Color {
+        switch type {
+        case .table: return PostgraceTheme.accentSageMuted
+        case .view, .materializedView: return PostgraceTheme.purpleSuperMuted
+        case .foreignTable: return PostgraceTheme.pastelSkyMuted
+        }
+    }
+
+    private func badgeForegroundForTableType(_ type: TableType) -> Color {
+        switch type {
+        case .table: return PostgraceTheme.accentSageText
+        case .view, .materializedView: return PostgraceTheme.purpleSuperText
+        case .foreignTable: return PostgraceTheme.pastelSkyText
         }
     }
 }

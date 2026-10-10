@@ -63,6 +63,33 @@ public final class ExportViewModel {
         configuration.selectedTables.removeAll { currentFilteredSet.contains($0) }
     }
 
+    public func isSchemaSelected(_ schema: String) -> Bool {
+        configuration.selectedSchemas.contains(schema)
+    }
+
+    public func toggleSchemaSelection(_ schema: String) {
+        if let idx = configuration.selectedSchemas.firstIndex(of: schema) {
+            configuration.selectedSchemas.remove(at: idx)
+            configuration.selectedTables.removeAll { $0.schema == schema }
+        } else {
+            configuration.selectedSchemas.append(schema)
+            let schemaTables = availableTables.filter { $0.schema == schema }
+            for tbl in schemaTables where !configuration.selectedTables.contains(tbl) {
+                configuration.selectedTables.append(tbl)
+            }
+        }
+    }
+
+    public func selectAllSchemas() {
+        configuration.selectedSchemas = availableSchemas
+        selectAllTables()
+    }
+
+    public func deselectAllSchemas() {
+        configuration.selectedSchemas.removeAll()
+        configuration.selectedTables.removeAll()
+    }
+
     /// Prepares and opens the export sheet for a single table.
     public func startTableExport(schema: String, table: String, filterClause: String = "") {
         let item = ExportTableItem(schema: schema, table: table)
@@ -137,6 +164,8 @@ public final class ExportViewModel {
 
     public func loadTablesForSchema(_ schema: String) async {
         isLoadingTables = true
+        self.availableSchemas = [schema]
+        self.configuration.selectedSchemas = [schema]
         let query = """
             SELECT table_schema, table_name
             FROM information_schema.tables
@@ -165,6 +194,8 @@ public final class ExportViewModel {
     public func loadTablesForMultipleSchemas(_ schemas: [String]) async {
         guard !schemas.isEmpty else { return }
         isLoadingTables = true
+        self.availableSchemas = schemas
+        self.configuration.selectedSchemas = schemas
         let inClause = schemas.map { "'\($0.pgEscapedLiteral)'" }.joined(separator: ", ")
         let query = """
             SELECT table_schema, table_name
@@ -193,6 +224,27 @@ public final class ExportViewModel {
 
     public func loadTablesForDatabase() async {
         isLoadingTables = true
+        let engine = await postgresService.activeConfig?.engine ?? .postgresql
+        if engine == .postgresql {
+            let schemaQuery = """
+                SELECT nspname 
+                FROM pg_namespace 
+                WHERE nspname NOT LIKE 'pg_%' 
+                  AND nspname != 'information_schema'
+                ORDER BY nspname ASC;
+            """
+            if let schemaRes = try? await postgresService.executeQuery(schemaQuery) {
+                var schemas: [String] = []
+                for row in schemaRes.rows {
+                    if let first = row.first, case .string(let s) = first {
+                        schemas.append(s)
+                    }
+                }
+                self.availableSchemas = schemas
+                self.configuration.selectedSchemas = schemas
+            }
+        }
+
         let query = """
             SELECT table_schema, table_name
             FROM information_schema.tables
@@ -213,6 +265,10 @@ public final class ExportViewModel {
             }
             self.availableTables = items
             self.configuration.selectedTables = items
+            if self.availableSchemas.isEmpty {
+                self.availableSchemas = Array(Set(items.map(\.schema))).sorted()
+                self.configuration.selectedSchemas = self.availableSchemas
+            }
         } catch {
             print("Failed to load tables for database export: \(error)")
         }

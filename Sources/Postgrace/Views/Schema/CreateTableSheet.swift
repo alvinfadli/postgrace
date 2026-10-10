@@ -134,21 +134,18 @@ struct CreateTableSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Schema")
                         .font(.caption.bold())
-                    Picker("Schema", selection: $targetSchema) {
-                        ForEach(availableSchemas, id: \.self) { s in
-                            Text(s).tag(s)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
+                    PostgracePicker(
+                        selection: $targetSchema,
+                        items: availableSchemas,
+                        titleFor: { $0 }
+                    )
                 }
                 .frame(width: 140)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Table Name")
                         .font(.caption.bold())
-                    TextField("e.g. orders, users, transactions", text: $tableName)
-                        .textFieldStyle(.roundedBorder)
+                    PostgraceTextField("e.g. orders, users, transactions", text: $tableName)
                 }
             }
 
@@ -275,23 +272,16 @@ struct CreateTableSheet: View {
 
             // Action Buttons
             HStack {
-                Button("Cancel") {
+                PostgraceButton("Cancel", variant: .secondary) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                if isCreating {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                Button("Create Table") {
+                PostgraceButton("Create Table", variant: .primary, isLoading: isCreating) {
                     createAction()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(PostgraceTheme.accentSky)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValidTableName || !isValidColumns || !canCreateInTargetSchema || isCreating)
             }
@@ -308,20 +298,17 @@ struct CreateTableSheet: View {
     @ViewBuilder
     private func columnRow(col: Binding<EditableColumn>) -> some View {
         HStack(spacing: 8) {
-            TextField("Column name", text: col.name)
-                .textFieldStyle(.roundedBorder)
+            PostgraceTextField("Column name", text: col.name, showsClearButton: false)
                 .frame(width: 130)
 
-            Picker("", selection: col.dataType) {
-                ForEach(supportedDataTypes, id: \.self) { type in
-                    Text(type).tag(type)
-                }
-            }
-            .labelsHidden()
+            PostgracePicker(
+                selection: col.dataType,
+                items: supportedDataTypes,
+                titleFor: { $0 }
+            )
             .frame(width: 130)
 
-            Toggle("", isOn: col.isPrimaryKey)
-                .labelsHidden()
+            PostgraceCheckbox(isOn: col.isPrimaryKey)
                 .frame(width: 30)
                 .onChange(of: col.isPrimaryKey.wrappedValue) { _, isPK in
                     if isPK {
@@ -329,13 +316,11 @@ struct CreateTableSheet: View {
                     }
                 }
 
-            Toggle("", isOn: col.isNullable)
-                .labelsHidden()
+            PostgraceCheckbox(isOn: col.isNullable)
                 .frame(width: 55)
                 .disabled(col.isPrimaryKey.wrappedValue)
 
-            TextField("Default (e.g. now())", text: col.defaultValue)
-                .textFieldStyle(.roundedBorder)
+            PostgraceTextField("Default (e.g. now())", text: col.defaultValue, showsClearButton: false)
                 .frame(maxWidth: .infinity)
 
             Button {

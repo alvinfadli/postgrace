@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a single value from a database cell.
-public enum CellValue: Hashable {
+public enum CellValue: Hashable, Sendable {
     case null
     case string(String)
     case int(Int64)
@@ -38,7 +38,7 @@ public enum CellValue: Hashable {
 }
 
 /// Metadata about a column in a query result.
-public struct ResultColumn: Hashable {
+public struct ResultColumn: Hashable, Sendable {
     public let name: String
     public let dataTypeOID: UInt32
     public let dataTypeName: String
@@ -51,7 +51,7 @@ public struct ResultColumn: Hashable {
 }
 
 /// Contains the result of a SQL query execution.
-public struct QueryResult: Hashable {
+public struct QueryResult: Hashable, Sendable {
     /// The columns returned by the query.
     public let columns: [ResultColumn]
     /// The row data returned by the query.

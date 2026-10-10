@@ -59,7 +59,10 @@ public final class ImportViewModel {
     }
 
     /// Configures the import and inspects headers / preview data.
-    public func setupConfiguration(for fileURL: URL, scope: ImportTargetScope) {
+    public func setupConfiguration(for fileURL: URL, scope: ImportTargetScope, tableColumns: [String]? = nil) {
+        if let cols = tableColumns {
+            self.targetTableColumns = cols
+        }
         var config = ImportConfiguration(targetScope: scope, sourceURL: fileURL)
 
         if case .table = scope {

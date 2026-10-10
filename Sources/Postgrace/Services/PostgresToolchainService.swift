@@ -95,6 +95,26 @@ public final class PostgresToolchainService {
         )
     }
 
+    /// Reads and returns the Table of Contents (TOC) lines from a PostgreSQL dump file using `pg_restore -l`.
+    public func listDumpTOC(fileURL: URL) async throws -> [String] {
+        guard let pgRestoreURL = findExecutable("pg_restore") else { return [] }
+        let process = Process()
+        process.executableURL = pgRestoreURL
+        process.arguments = ["-l", fileURL.path]
+        process.standardInput = FileHandle.nullDevice
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        return output.components(separatedBy: .newlines)
+    }
+
     /// Executes `psql` to restore plain text SQL scripts.
     public func runPsql(
         config: SavedConnection,

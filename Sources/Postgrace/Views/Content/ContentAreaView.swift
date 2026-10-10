@@ -59,24 +59,24 @@ struct ContentAreaView: View {
             if dataGridViewModel.isLoading {
                 ProgressView("Loading data…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = dataGridViewModel.error {
-                VStack(spacing: 10) {
+            } else if let error = dataGridViewModel.error, !error.contains("Query cancelled") {
+                VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.largeTitle)
-                        .foregroundColor(.red)
+                        .font(.system(size: 32))
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                     Text("Query Error")
                         .font(.headline)
+                        .foregroundColor(.primary)
                     Text(error)
                         .font(.callout)
-                        .foregroundColor(.red)
+                        .foregroundColor(PostgraceTheme.destructiveRed)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
-                    Button("Reset Filter & Retry") {
+                    PostgraceButton("Reset Filter & Retry", variant: .secondary, size: .small) {
                         Task {
                             await dataGridViewModel.clearFilters()
                         }
                     }
-                    .controlSize(.small)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let result = dataGridViewModel.result {
@@ -94,7 +94,9 @@ struct ContentAreaView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: "\(schema).\(table)") {
             await dataGridViewModel.loadTableData(schema: schema, table: table)
-            schemaViewModel.setAccurateRowCount(schema: schema, table: table, count: dataGridViewModel.totalRows)
+            if !Task.isCancelled {
+                schemaViewModel.setAccurateRowCount(schema: schema, table: table, count: dataGridViewModel.totalRows)
+            }
         }
     }
 

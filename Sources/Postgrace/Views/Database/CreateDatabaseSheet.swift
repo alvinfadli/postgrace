@@ -129,8 +129,7 @@ struct CreateDatabaseSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Database Name *")
                         .font(.caption.bold())
-                    TextField("e.g. analytics_staging, billing_prod", text: $dbName)
-                        .textFieldStyle(.roundedBorder)
+                    PostgraceTextField("e.g. analytics_staging, billing_prod", text: $dbName)
 
                     if !dbName.isEmpty && !isValidIdentifier {
                         Text("Database name must start with a letter/underscore and contain only letters, numbers, and underscores.")
@@ -148,19 +147,17 @@ struct CreateDatabaseSheet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Owner (optional)")
                             .font(.caption.bold())
-                        TextField("Defaults to \(currentUser.isEmpty ? "current user" : currentUser)", text: $customOwner)
-                            .textFieldStyle(.roundedBorder)
+                        PostgraceTextField("Defaults to \(currentUser.isEmpty ? "current user" : currentUser)", text: $customOwner)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Encoding")
                             .font(.caption.bold())
-                        Picker("", selection: $selectedEncoding) {
-                            ForEach(standardEncodings, id: \.self) { enc in
-                                Text(enc).tag(enc)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                        PostgracePicker(
+                            selection: $selectedEncoding,
+                            items: standardEncodings,
+                            titleFor: { $0 }
+                        )
                     }
                 }
 
@@ -169,20 +166,17 @@ struct CreateDatabaseSheet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Template Database (optional)")
                             .font(.caption.bold())
-                        TextField("e.g. template1", text: $template)
-                            .textFieldStyle(.roundedBorder)
+                        PostgraceTextField("e.g. template1", text: $template)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Connection Limit (optional)")
                             .font(.caption.bold())
-                        TextField("e.g. -1 for unlimited", text: $connectionLimit)
-                            .textFieldStyle(.roundedBorder)
+                        PostgraceTextField("e.g. -1 for unlimited", text: $connectionLimit)
                     }
                 }
 
-                Toggle("Switch to new database immediately after creation", isOn: $switchAfterCreation)
-                    .font(.caption)
+                PostgraceToggle("Switch to new database immediately after creation", isOn: $switchAfterCreation)
                     .padding(.top, 4)
             }
 
@@ -219,26 +213,20 @@ struct CreateDatabaseSheet: View {
 
             // Footer / Actions
             HStack {
-                Button("Cancel") {
+                PostgraceButton("Cancel", variant: .ghost) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                Button {
+                PostgraceButton(
+                    "Create Database",
+                    variant: .primary,
+                    isLoading: isCreating
+                ) {
                     createDatabase()
-                } label: {
-                    if isCreating {
-                        ProgressView()
-                            .controlSize(.small)
-                            .padding(.horizontal, 8)
-                    } else {
-                        Text("Create Database")
-                            .fontWeight(.semibold)
-                    }
                 }
-                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSubmit)
             }

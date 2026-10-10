@@ -5,6 +5,7 @@ struct ConnectionFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ConnectionViewModel.self) private var connectionViewModel
 
+    @State private var engine: DatabaseEngine
     @State private var name: String
     @State private var host: String
     @State private var port: String
@@ -13,6 +14,7 @@ struct ConnectionFormView: View {
     @State private var database: String
     @State private var sslMode: SSLMode
     @State private var colorTag: ConnectionColor
+    @State private var isSafeModeEnabled: Bool
     @State private var testResult: TestResult?
     @State private var isTesting = false
     @State private var showPassword = false
@@ -32,13 +34,20 @@ struct ConnectionFormView: View {
 
     init(connection: SavedConnection?) {
         self.existingConnection = connection
+        _engine = State(initialValue: connection?.engine ?? .postgresql)
         _name = State(initialValue: connection?.name ?? "")
         _host = State(initialValue: connection?.host ?? "localhost")
-        _port = State(initialValue: String(connection?.port ?? 5432))
+        _port = State(initialValue: String(connection?.port ?? (connection?.engine ?? .postgresql).defaultPort))
         _username = State(initialValue: connection?.username ?? "")
         _database = State(initialValue: connection?.database ?? "")
         _sslMode = State(initialValue: connection?.sslMode ?? .disable)
         _colorTag = State(initialValue: connection?.colorTag ?? .none)
+        _isSafeModeEnabled = State(initialValue: connection?.isSafeModeEnabled ?? false)
+    }
+
+    private var isHostLocalhost: Bool {
+        let h = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return h == "localhost" || h == "127.0.0.1" || h == "::1" || h.hasSuffix(".local")
     }
 
     private var isPortValid: Bool {
@@ -65,7 +74,7 @@ struct ConnectionFormView: View {
                     Text(existingConnection == nil ? "New Connection" : "Edit Connection")
                         .font(.title3.bold())
                     if let existing = existingConnection {
-                        Text(existing.name)
+                        Text("\(existing.name) (\(existing.engine.rawValue))")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -81,6 +90,26 @@ struct ConnectionFormView: View {
 
             // Form
             Form {
+                Section("Database Engine") {
+                    PostgraceSegmentedControl(
+                        selection: $engine,
+                        items: DatabaseEngine.allCases,
+                        titleFor: { $0.rawValue },
+                        iconFor: { $0.iconName }
+                    )
+                    .onChange(of: engine) { oldEngine, newEngine in
+                        if port.isEmpty || port == String(oldEngine.defaultPort) {
+                            port = String(newEngine.defaultPort)
+                        }
+                        if database.isEmpty || database == oldEngine.defaultDatabase {
+                            database = newEngine.defaultDatabase
+                        }
+                        if username.isEmpty || username == oldEngine.defaultUsername {
+                            username = newEngine.defaultUsername
+                        }
+                    }
+                }
+
                 Section("Connection Details") {
                     TextField("Display Name (e.g. Local Development)", text: $name)
                         .focused($focusedField, equals: .name)
@@ -128,8 +157,9 @@ struct ConnectionFormView: View {
 
                 Section("Options") {
                     Picker("SSL Mode", selection: $sslMode) {
-                        Text("Disable").tag(SSLMode.disable)
-                        Text("Require (Strict TLS)").tag(SSLMode.require)
+                        ForEach(SSLMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
                     }
 
                     Picker("Color Tag", selection: $colorTag) {
@@ -139,6 +169,21 @@ struct ConnectionFormView: View {
                         Label("Green", systemImage: "circle.fill").foregroundColor(.green).tag(ConnectionColor.green)
                         Label("Orange", systemImage: "circle.fill").foregroundColor(.orange).tag(ConnectionColor.orange)
                         Label("Purple", systemImage: "circle.fill").foregroundColor(.purple).tag(ConnectionColor.purple)
+                    }
+
+                    if isHostLocalhost {
+                        PostgraceToggle("Safe Mode (Guard against dangerous queries)", isOn: $isSafeModeEnabled)
+                            .help("When ON, dangerous queries on localhost require confirmation.")
+                    } else {
+                        HStack {
+                            Label("Safe Mode: Enforced (Locked ON)", systemImage: "lock.shield.fill")
+                                .foregroundColor(PostgraceTheme.destructiveRed)
+                            Spacer()
+                            Text("Remote Host")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .help("Safe Mode is permanently locked for remote connections to protect against accidental changes.")
                     }
                 }
             }
@@ -152,7 +197,7 @@ struct ConnectionFormView: View {
                     case .success:
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(PostgraceTheme.emeraldRw)
-                        Text("Connection test successful! PostgreSQL server is reachable.")
+                        Text("Connection test successful! \(engine.rawValue) server is reachable.")
                             .font(.caption)
                             .foregroundColor(PostgraceTheme.emeraldRw)
                     case .failure(let msg):
@@ -198,7 +243,11 @@ struct ConnectionFormView: View {
                     }
                 }
 
-                Button {
+                PostgraceButton(
+                    "Test Connection",
+                    variant: .secondary,
+                    isLoading: isTesting
+                ) {
                     testResult = nil
                     isTesting = true
                     Task {
@@ -211,31 +260,21 @@ struct ConnectionFormView: View {
                         }
                         isTesting = false
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        if isTesting {
-                            ProgressView()
-                                .controlSize(.mini)
-                        }
-                        Text("Test Connection")
-                    }
                 }
                 .disabled(isTesting || !isFormValid)
 
                 Spacer()
 
-                Button("Cancel", role: .cancel) {
+                PostgraceButton("Cancel", variant: .secondary) {
                     dismiss()
                 }
                 .keyboardShortcut(.escape)
 
-                Button("Save") {
+                PostgraceButton("Save", variant: .primary) {
                     let conn = buildConnection()
                     connectionViewModel.saveConnection(conn, password: password)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(PostgraceTheme.accentSky)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isFormValid)
             }
@@ -257,16 +296,18 @@ struct ConnectionFormView: View {
     }
 
     private func buildConnection() -> SavedConnection {
-        let cleanPort = Int(port.trimmingCharacters(in: .whitespaces)) ?? 5432
+        let cleanPort = Int(port.trimmingCharacters(in: .whitespaces)) ?? engine.defaultPort
         return SavedConnection(
             id: existingConnection?.id ?? UUID(),
             name: name.trimmingCharacters(in: .whitespaces),
+            engine: engine,
             host: host.trimmingCharacters(in: .whitespaces),
             port: cleanPort,
             username: username.trimmingCharacters(in: .whitespaces),
             database: database.trimmingCharacters(in: .whitespaces),
             sslMode: sslMode,
             colorTag: colorTag,
+            isSafeModeEnabled: isHostLocalhost ? isSafeModeEnabled : true,
             createdAt: existingConnection?.createdAt ?? Date(),
             updatedAt: Date()
         )

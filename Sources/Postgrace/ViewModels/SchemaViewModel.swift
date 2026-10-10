@@ -75,6 +75,8 @@ public class SchemaViewModel {
             schemas = try await schemaService.fetchSchemas()
             if schemas.contains(where: { $0.name == "public" }) {
                 await loadTables(for: "public")
+            } else if let first = schemas.first {
+                await loadTables(for: first.name)
             }
         } catch {
             print("Error loading schemas: \(error)")
@@ -356,5 +358,21 @@ public class SchemaViewModel {
             crudError = error.localizedDescription
             throw error
         }
+    }
+
+    /// Clears all cached schemas, tables, and inspection state upon disconnect.
+    public func clear() {
+        schemas = []
+        tables = [:]
+        columns = [:]
+        schemaDetails = []
+        tableDetails = [:]
+        databases = []
+        accurateRowCounts = [:]
+        isLoadingRowCount = [:]
+        selectedSchema = nil
+        selectedTable = nil
+        userPrivileges = nil
+        crudError = nil
     }
 }

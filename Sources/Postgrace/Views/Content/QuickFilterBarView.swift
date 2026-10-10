@@ -9,6 +9,8 @@ struct QuickFilterBarView: View {
     let availableColumns: [String]
     let onApply: () -> Void
 
+    @State private var showingColumnsPopover: Bool = false
+
     private var paginationText: String {
         guard dataGridViewModel.totalRows > 0 else { return "0 rows" }
         let startRow: Int64 = Int64(dataGridViewModel.currentPage * dataGridViewModel.pageSize + 1)
@@ -60,20 +62,18 @@ struct QuickFilterBarView: View {
                 } else {
                     // Conjunction Picker: Match ALL (AND) vs Match ANY (OR) via clean segmented picker
                     if dataVM.filterRules.count > 1 {
-                        Picker("", selection: Binding(
-                            get: { dataVM.filterConjunction },
-                            set: {
-                                dataVM.filterConjunction = $0
-                                onApply()
-                            }
-                        )) {
-                            Text("AND").tag(FilterConjunction.and)
-                            Text("OR").tag(FilterConjunction.or)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .controlSize(.small)
-                        .frame(width: 84)
+                        PostgraceSegmentedControl(
+                            selection: Binding(
+                                get: { dataVM.filterConjunction },
+                                set: {
+                                    dataVM.filterConjunction = $0
+                                    onApply()
+                                }
+                            ),
+                            items: [FilterConjunction.and, FilterConjunction.or],
+                            titleFor: { $0.rawValue.uppercased() }
+                        )
+                        .frame(width: 90)
                         .help("Match ALL conditions (AND) or ANY condition (OR)")
                     }
 
@@ -89,6 +89,44 @@ struct QuickFilterBarView: View {
                 }
 
                 Spacer()
+
+                // Column Visibility Selector
+                Button {
+                    showingColumnsPopover.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 9))
+                        let hiddenCount = dataVM.hiddenColumns.count
+                        let totalCount = availableColumns.isEmpty ? dataVM.availableColumns.count : availableColumns.count
+                        let visibleCount = max(0, totalCount - hiddenCount)
+                        Text(hiddenCount > 0 ? "Columns (\(visibleCount)/\(totalCount))" : "Columns")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(dataVM.hiddenColumns.isEmpty ? .secondary : PostgraceTheme.accentSky)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(PostgraceTheme.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(dataVM.hiddenColumns.isEmpty ? PostgraceTheme.border : PostgraceTheme.accentSky.opacity(0.4), lineWidth: PostgraceTheme.hairlineBorder)
+                    )
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showingColumnsPopover, arrowEdge: .bottom) {
+                    let cols = (availableColumns.isEmpty ? dataVM.availableColumns : availableColumns).map { name in
+                        ResultColumn(name: name, dataTypeOID: 0, dataTypeName: "")
+                    }
+                    ColumnVisibilityPopoverView(
+                        allColumns: cols,
+                        hiddenColumns: dataVM.hiddenColumns,
+                        onToggleColumn: { dataVM.toggleColumnVisibility($0) },
+                        onShowAll: { dataVM.showAllColumns() },
+                        onHideAll: { dataVM.hideAllColumns() }
+                    )
+                }
+                .help("Select columns to show or hide in the table view")
 
                 // Export Table / Filtered Rows Button
                 Menu {
@@ -199,22 +237,9 @@ struct QuickFilterBarView: View {
                         .help("Add another filter condition")
 
                         // "Apply Filter" Button
-                        Button {
+                        PostgraceButton("Apply", icon: "checkmark", variant: .primary, size: .small) {
                             onApply()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 8, weight: .bold))
-                                Text("Apply")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 3.5)
-                            .background(PostgraceTheme.accentSky)
-                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         }
-                        .buttonStyle(.plain)
                         .keyboardShortcut(.return, modifiers: [.command])
                         .help("Apply filter (⌘↵)")
 
@@ -344,44 +369,22 @@ struct QuickFilterBarView: View {
 
             // 3. Value Input Field (or hidden if IS NULL / IS NOT NULL)
             if rule.op.requiresValue {
-                HStack(spacing: 4) {
-                    TextField("Value…", text: Binding(
+                PostgraceTextField(
+                    "Value…",
+                    text: Binding(
                         get: { rule.value },
                         set: { newVal in
                             if let ruleIndex = dataGridViewModel.filterRules.firstIndex(where: { $0.id == rule.id }) {
                                 dataGridViewModel.filterRules[ruleIndex].value = newVal
                             }
                         }
-                    ))
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.primary)
-                    .onSubmit {
-                        onApply()
-                    }
-
-                    if !rule.value.isEmpty {
-                        Button {
-                            if let ruleIndex = dataGridViewModel.filterRules.firstIndex(where: { $0.id == rule.id }) {
-                                dataGridViewModel.filterRules[ruleIndex].value = ""
-                            }
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 8))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .frame(minWidth: 140, maxWidth: 260)
-                .background(PostgraceTheme.surfaceElevated)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                    ),
+                    isMonospaced: true
                 )
+                .frame(minWidth: 140, maxWidth: 260)
+                .onSubmit {
+                    onApply()
+                }
             } else {
                 Text("(no value required)")
                     .font(.system(size: 11))

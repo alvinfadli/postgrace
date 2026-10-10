@@ -11,6 +11,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
+        .package(url: "https://github.com/vapor/mysql-nio.git", from: "1.8.0"),
         .package(url: "https://github.com/apple/swift-nio-ssh.git", from: "0.9.0"),
         .package(url: "https://github.com/kishikawakatsumi/KeychainAccess.git", from: "4.2.2")
     ],
@@ -19,6 +20,7 @@ let package = Package(
             name: "Postgrace",
             dependencies: [
                 .product(name: "PostgresNIO", package: "postgres-nio"),
+                .product(name: "MySQLNIO", package: "mysql-nio"),
                 .product(name: "NIOSSH", package: "swift-nio-ssh"),
                 .product(name: "KeychainAccess", package: "KeychainAccess")
             ],

@@ -105,11 +105,9 @@ struct ImportSheet: View {
                             Text("Select a file to import")
                                 .font(.system(size: 13, weight: .semibold))
 
-                            Button("Choose File…") {
+                            PostgraceButton("Choose File…", variant: .primary) {
                                 vm.promptSelectFile()
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.regular)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(40)
@@ -123,39 +121,28 @@ struct ImportSheet: View {
                 Spacer()
 
                 if case .completed = vm.progress.status {
-                    Button("Done") {
+                    PostgraceButton("Done", variant: .primary) {
                         vm.closeSheet()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
                 } else if vm.isImporting {
-                    Button("Cancel Import") {
+                    PostgraceButton("Cancel Import", variant: .destructive) {
                         vm.cancelImport()
                     }
-                    .buttonStyle(.bordered)
-                    .foregroundColor(PostgraceTheme.destructiveRed)
 
-                    ProgressView()
-                        .controlSize(.small)
+                    PostgraceSpinner(size: .small)
                         .padding(.leading, 8)
                 } else {
-                    Button("Cancel") {
+                    PostgraceButton("Cancel", variant: .secondary) {
                         vm.closeSheet()
                     }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
 
-                    Button {
+                    PostgraceButton(
+                        "Start Import",
+                        icon: "arrow.down.doc",
+                        variant: .primary
+                    ) {
                         vm.performImport()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.down.doc")
-                            Text("Start Import")
-                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .tint(PostgraceTheme.accentSky)
                     .disabled(vm.configuration == nil)
                 }
             }
@@ -252,22 +239,20 @@ struct ImportSheet: View {
                                 .font(.system(size: 9))
                                 .foregroundColor(.secondary)
 
-                            Picker("", selection: Binding(
-                                get: { item.targetColumn ?? "" },
-                                set: { newVal in
-                                    if var cfg = importViewModel.configuration {
-                                        cfg.columnMappings[index].targetColumn = newVal.isEmpty ? nil : newVal
-                                        importViewModel.configuration = cfg
+                            PostgracePicker(
+                                selection: Binding(
+                                    get: { item.targetColumn ?? "" },
+                                    set: { newVal in
+                                        if var cfg = importViewModel.configuration {
+                                            cfg.columnMappings[index].targetColumn = newVal.isEmpty ? nil : newVal
+                                            importViewModel.configuration = cfg
+                                        }
                                     }
-                                }
-                            )) {
-                                Text("(Skip Column)").tag("")
-                                ForEach(tableCols, id: \.self) { col in
-                                    Text(col).tag(col)
-                                }
-                            }
+                                ),
+                                items: [""] + tableCols,
+                                titleFor: { $0.isEmpty ? "(Skip Column)" : $0 }
+                            )
                             .frame(maxWidth: .infinity)
-                            .controlSize(.small)
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -298,24 +283,21 @@ struct ImportSheet: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
-                Picker("", selection: Binding(
-                    get: { config.conflictPolicy },
-                    set: { importViewModel.configuration?.conflictPolicy = $0 }
-                )) {
-                    ForEach(ImportConflictPolicy.allCases) { policy in
-                        Text(policy.rawValue).tag(policy)
-                    }
-                }
-                .controlSize(.small)
+                PostgracePicker(
+                    selection: Binding(
+                        get: { config.conflictPolicy },
+                        set: { importViewModel.configuration?.conflictPolicy = $0 }
+                    ),
+                    items: ImportConflictPolicy.allCases,
+                    titleFor: { $0.rawValue }
+                )
             }
 
             if config.sourceType == .csv || config.sourceType == .json {
-                Toggle("Treat empty text fields as NULL", isOn: Binding(
+                PostgraceCheckbox("Treat empty text fields as NULL", isOn: Binding(
                     get: { config.treatEmptyAsNull },
                     set: { importViewModel.configuration?.treatEmptyAsNull = $0 }
                 ))
-                .font(.system(size: 11))
-                .toggleStyle(.checkbox)
             }
         }
     }

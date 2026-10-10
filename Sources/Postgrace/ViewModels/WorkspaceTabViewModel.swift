@@ -149,4 +149,12 @@ public class WorkspaceTabViewModel {
         queryViewModels = queryViewModels.filter { $0.key == id }
         activeTabId = id
     }
+
+    /// Resets document tabs when switching servers or disconnecting, restoring a single default Query #1 tab.
+    public func resetTabs() {
+        queryViewModels.removeAll()
+        tabs.removeAll()
+        queryCounter = 1
+        openQueryTab()
+    }
 }

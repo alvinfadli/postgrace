@@ -122,24 +122,36 @@ public enum JSONHandler {
         var batch: [[String: String]] = []
         var totalCount: Int64 = 0
 
-        for line in content.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  let lineData = trimmed.data(using: .utf8),
-                  let dict = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any] else {
-                continue
+        // Stream line-by-line using substring slices to avoid allocating array of all lines in RAM
+        var lineStart = content.startIndex
+        while lineStart < content.endIndex {
+            let lineEnd = content[lineStart...].firstIndex(where: { $0 == "\n" || $0 == "\r" }) ?? content.endIndex
+            let lineSlice = content[lineStart..<lineEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !lineSlice.isEmpty,
+               let lineData = lineSlice.data(using: .utf8),
+               let dict = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any] {
+                var stringDict: [String: String] = [:]
+                for (k, v) in dict {
+                    stringDict[k] = "\(v)"
+                }
+                batch.append(stringDict)
+                totalCount += 1
+
+                if batch.count >= batchSize {
+                    try await onBatch(batch)
+                    batch.removeAll(keepingCapacity: true)
+                }
             }
 
-            var stringDict: [String: String] = [:]
-            for (k, v) in dict {
-                stringDict[k] = "\(v)"
-            }
-            batch.append(stringDict)
-            totalCount += 1
-
-            if batch.count >= batchSize {
-                try await onBatch(batch)
-                batch.removeAll(keepingCapacity: true)
+            if lineEnd < content.endIndex {
+                var nextStart = content.index(after: lineEnd)
+                if content[lineEnd] == "\r" && nextStart < content.endIndex && content[nextStart] == "\n" {
+                    nextStart = content.index(after: nextStart)
+                }
+                lineStart = nextStart
+            } else {
+                break
             }
         }
 

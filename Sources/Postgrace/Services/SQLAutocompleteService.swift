@@ -26,6 +26,16 @@ public struct SQLCompletionItem: Identifiable, Hashable, Sendable {
             case .snippet: return "doc.text"
             }
         }
+
+        public var priority: Int {
+            switch self {
+            case .table: return 1
+            case .column: return 2
+            case .keyword: return 3
+            case .function: return 4
+            default: return 5
+            }
+        }
     }
 
     public init(text: String, insertText: String? = nil, kind: Kind, detail: String? = nil) {
@@ -173,12 +183,12 @@ public enum SQLAutocompleteService {
         }
 
         // 3. Database Columns
+        var seenColumnNames = Set<String>()
         for (key, colList) in columns {
             let tableName = key.split(separator: ".").last.map(String.init) ?? ""
             for col in colList {
                 if col.name.lowercased().hasPrefix(lowerPrefix) {
-                    // Prevent duplicate column names from flooding results
-                    if !results.contains(where: { $0.text == col.name }) {
+                    if seenColumnNames.insert(col.name).inserted {
                         results.append(SQLCompletionItem(
                             text: col.name,
                             insertText: col.name,
@@ -214,30 +224,14 @@ public enum SQLAutocompleteService {
             }
         }
 
-        // Rank results: exact prefix match first, tables & columns prioritized
+        // Rank results: exact case-insensitive match first, tables & columns prioritized
         results.sort { a, b in
-            let aStarts = a.text.lowercased().hasPrefix(lowerPrefix)
-            let bStarts = b.text.lowercased().hasPrefix(lowerPrefix)
-            if aStarts != bStarts { return aStarts && !bStarts }
+            let aExact = a.text.caseInsensitiveCompare(prefix) == .orderedSame
+            let bExact = b.text.caseInsensitiveCompare(prefix) == .orderedSame
+            if aExact != bExact { return aExact && !bExact }
 
-            let aPriority: Int = {
-                switch a.kind {
-                case .table: return 1
-                case .column: return 2
-                case .keyword: return 3
-                case .function: return 4
-                default: return 5
-                }
-            }()
-            let bPriority: Int = {
-                switch b.kind {
-                case .table: return 1
-                case .column: return 2
-                case .keyword: return 3
-                case .function: return 4
-                default: return 5
-                }
-            }()
+            let aPriority = a.kind.priority
+            let bPriority = b.kind.priority
             if aPriority != bPriority { return aPriority < bPriority }
             return a.text.count < b.text.count
         }

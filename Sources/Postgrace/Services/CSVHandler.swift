@@ -85,18 +85,47 @@ public enum CSVHandler {
 
     /// Inspects the first non-empty lines of a CSV file to extract headers and preview rows.
     public static func inspect(url: URL, delimiter: Character = ",", maxPreviewRows: Int = 5) throws -> (headers: [String], previewRows: [[String]]) {
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        guard let content = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
-            throw NSError(domain: "CSVHandler", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to read file as UTF-8 or ASCII text."])
-        }
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
 
         var lines: [String] = []
-        content.enumerateLines { line, stop in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                lines.append(line)
-                if lines.count >= maxPreviewRows + 1 {
-                    stop = true
+        var remainingData = Data()
+        let chunkSize = 64 * 1024
+        var hitEOF = false
+
+        while lines.count < maxPreviewRows + 1 && !hitEOF {
+            let chunk = try fileHandle.read(upToCount: chunkSize) ?? Data()
+            if chunk.isEmpty {
+                hitEOF = true
+                break
+            }
+            remainingData.append(chunk)
+
+            while let newlineIndex = remainingData.firstIndex(where: { $0 == 10 || $0 == 13 }) {
+                let lineData = remainingData.subdata(in: 0..<newlineIndex)
+                var nextIndex = newlineIndex + 1
+                if nextIndex < remainingData.count && remainingData[newlineIndex] == 13 && remainingData[nextIndex] == 10 {
+                    nextIndex += 1
+                }
+                remainingData.removeSubrange(0..<nextIndex)
+
+                if let lineStr = String(data: lineData, encoding: .utf8) ?? String(data: lineData, encoding: .ascii) {
+                    let trimmed = lineStr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        lines.append(lineStr)
+                        if lines.count >= maxPreviewRows + 1 {
+                            break
+                        }
+                    }
+                }
+            }
+        }
+
+        if lines.count < maxPreviewRows + 1 && !remainingData.isEmpty {
+            if let lineStr = String(data: remainingData, encoding: .utf8) ?? String(data: remainingData, encoding: .ascii) {
+                let trimmed = lineStr.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    lines.append(lineStr)
                 }
             }
         }
@@ -114,7 +143,7 @@ public enum CSVHandler {
         return (headers, preview)
     }
 
-    /// Streaming parser reading a CSV file line by line and yielding records in batches.
+    /// Streaming parser reading a CSV file chunk by chunk and yielding records in batches.
     public static func parseInBatches(
         url: URL,
         delimiter: Character = ",",
@@ -122,10 +151,8 @@ public enum CSVHandler {
         batchSize: Int = 250,
         onBatch: @escaping (_ rows: [[String]]) async throws -> Void
     ) async throws -> Int64 {
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        guard let content = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
-            throw NSError(domain: "CSVHandler", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to read file as text."])
-        }
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
 
         var isFirst = true
         var batch: [[String]] = []
@@ -133,37 +160,45 @@ public enum CSVHandler {
 
         var currentLine = ""
         var inQuotes = false
+        let chunkSize = 128 * 1024 // 128 KB chunk buffer to prevent multi-GB RAM spikes
 
-        for char in content {
-            if char == "\"" {
-                inQuotes.toggle()
-                currentLine.append(char)
-            } else if (char == "\n" || char == "\r") && !inQuotes {
-                if !currentLine.isEmpty {
-                    if isFirst && hasHeaders {
-                        isFirst = false
-                    } else {
-                        let parsed = parseLine(currentLine, delimiter: delimiter)
-                        batch.append(parsed)
-                        totalRows += 1
+        while true {
+            guard let chunk = try fileHandle.read(upToCount: chunkSize), !chunk.isEmpty else {
+                break
+            }
+            guard let chunkStr = String(data: chunk, encoding: .utf8) ?? String(data: chunk, encoding: .ascii) else {
+                continue
+            }
 
-                        if batch.count >= batchSize {
-                            try await onBatch(batch)
-                            batch.removeAll(keepingCapacity: true)
+            for char in chunkStr {
+                if char == "\"" {
+                    inQuotes.toggle()
+                    currentLine.append(char)
+                } else if (char == "\n" || char == "\r") && !inQuotes {
+                    if !currentLine.isEmpty {
+                        if isFirst && hasHeaders {
+                            isFirst = false
+                        } else {
+                            let parsed = parseLine(currentLine, delimiter: delimiter)
+                            batch.append(parsed)
+                            totalRows += 1
+
+                            if batch.count >= batchSize {
+                                try await onBatch(batch)
+                                batch.removeAll(keepingCapacity: true)
+                            }
                         }
+                        currentLine.removeAll(keepingCapacity: true)
                     }
-                    currentLine = ""
+                } else {
+                    currentLine.append(char)
                 }
-            } else {
-                currentLine.append(char)
             }
         }
 
         // Process trailing row if any
         if !currentLine.isEmpty {
-            if isFirst && hasHeaders {
-                // Was only a header row
-            } else {
+            if !(isFirst && hasHeaders) {
                 let parsed = parseLine(currentLine, delimiter: delimiter)
                 batch.append(parsed)
                 totalRows += 1

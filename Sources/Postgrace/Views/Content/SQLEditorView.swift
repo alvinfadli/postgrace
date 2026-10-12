@@ -278,6 +278,7 @@ final class SQLCompletionController: ObservableObject {
     private var items: [SQLCompletionItem] = []
     private var selectedIndex: Int = 0
     private var replaceRange: NSRange = NSRange(location: 0, length: 0)
+    private var evaluateTask: Task<Void, Never>?
 
     var isVisible: Bool {
         window?.isVisible ?? false
@@ -288,26 +289,33 @@ final class SQLCompletionController: ObservableObject {
         columns: [String: [ColumnInfo]],
         schemas: [SchemaInfo]
     ) {
-        guard let tv = textView else { return }
-        let location = tv.selectedRange().location
+        evaluateTask?.cancel()
+        evaluateTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 60_000_000) // 60ms debounce for rapid typing
+            guard !Task.isCancelled, let self = self, let tv = self.textView else { return }
+            let location = tv.selectedRange().location
+            let text = tv.string
 
-        let (prefix, range, suggestions) = SQLAutocompleteService.suggestions(
-            for: tv.string,
-            at: location,
-            tables: tables,
-            columns: columns,
-            schemas: schemas
-        )
+            let (prefix, range, suggestions) = SQLAutocompleteService.suggestions(
+                for: text,
+                at: location,
+                tables: tables,
+                columns: columns,
+                schemas: schemas
+            )
 
-        guard !suggestions.isEmpty && prefix.count >= 1 else {
-            dismiss()
-            return
+            guard !Task.isCancelled else { return }
+
+            guard !suggestions.isEmpty && prefix.count >= 1 else {
+                self.dismiss()
+                return
+            }
+
+            self.items = suggestions
+            self.replaceRange = range
+            self.selectedIndex = 0
+            self.showPopup()
         }
-
-        self.items = suggestions
-        self.replaceRange = range
-        self.selectedIndex = 0
-        showPopup()
     }
 
     func selectNext() {
@@ -333,6 +341,8 @@ final class SQLCompletionController: ObservableObject {
     }
 
     func dismiss() {
+        evaluateTask?.cancel()
+        evaluateTask = nil
         window?.orderOut(nil)
         items = []
         selectedIndex = 0
@@ -342,7 +352,6 @@ final class SQLCompletionController: ObservableObject {
         guard let tv = textView, let textWindow = tv.window else { return }
 
         // Position directly at cursor character rect
-        let glyphIndex = tv.layoutManager?.glyphIndexForCharacter(at: replaceRange.location) ?? 0
         let charRect = tv.firstRect(forCharacterRange: NSRange(location: replaceRange.location, length: 0), actualRange: nil)
 
         let popupWidth: CGFloat = 280
@@ -488,6 +497,40 @@ final class LineNumberRulerView: NSRulerView {
         layer?.masksToBounds = true
     }
 
+    private var cachedStringLength: Int = -1
+    private var lineStarts: [Int] = [0]
+
+    private func updateLineStartsIfNeeded(textString: NSString) {
+        if textString.length == cachedStringLength {
+            return
+        }
+        cachedStringLength = textString.length
+        var starts: [Int] = [0]
+        let len = textString.length
+        for i in 0..<len {
+            if textString.character(at: i) == 10 { // \n
+                starts.append(i + 1)
+            }
+        }
+        self.lineStarts = starts
+    }
+
+    private func lineNumber(for charIndex: Int) -> Int {
+        var low = 0
+        var high = lineStarts.count - 1
+        var result = 0
+        while low <= high {
+            let mid = (low + high) / 2
+            if lineStarts[mid] <= charIndex {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result + 1
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let textView = clientView as? NSTextView,
               let layoutManager = textView.layoutManager,
@@ -512,14 +555,11 @@ final class LineNumberRulerView: NSRulerView {
             return
         }
 
+        updateLineStartsIfNeeded(textString: textString)
+
         let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: textView.visibleRect, in: textContainer)
         let firstCharIndex = layoutManager.characterIndexForGlyph(at: visibleGlyphRange.location)
-        var lineNumber = 1
-        for i in 0..<min(firstCharIndex, textString.length) {
-            if textString.character(at: i) == 10 { // \n
-                lineNumber += 1
-            }
-        }
+        var lineNumber = lineNumber(for: min(firstCharIndex, textString.length))
 
         var glyphIndex = visibleGlyphRange.location
         let maxGlyphIndex = NSMaxRange(visibleGlyphRange)

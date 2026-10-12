@@ -211,9 +211,13 @@ public struct ExportConfiguration: Equatable, Sendable {
         return "\(baseName)\(modeSuffix)_\(Self.timestampString).\(format.fileExtension)"
     }
 
-    private static var timestampString: String {
+    private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd_HHmmss"
-        return formatter.string(from: Date())
+        return formatter
+    }()
+
+    private static var timestampString: String {
+        timestampFormatter.string(from: Date())
     }
 }

@@ -68,24 +68,24 @@ struct QueryHistoryView: View {
 struct QueryHistoryRow: View {
     let item: QueryHistoryItem
 
-    private var timeFormatter: DateFormatter {
+    private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .none
         f.timeStyle = .medium
         return f
-    }
+    }()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // Query preview (first line, truncated)
-            Text(item.query.components(separatedBy: .newlines).first ?? item.query)
+            Text(item.query.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? item.query)
                 .font(.system(.caption, design: .monospaced))
                 .lineLimit(2)
                 .truncationMode(.tail)
 
             HStack(spacing: 8) {
                 // Timestamp
-                Text(timeFormatter.string(from: item.executedAt))
+                Text(Self.timeFormatter.string(from: item.executedAt))
                     .font(.caption2)
                     .foregroundColor(.secondary)
 

@@ -18,6 +18,9 @@ public enum SQLFormatter {
         "REFERENCES", "DEFAULT", "CASCADE", "RETURNING"
     ]
 
+    private static let majorKeywordsSet: Set<String> = Set(majorKeywords)
+    private static let uppercaseKeywords: Set<String> = Set((majorKeywords + inlineKeywords).flatMap { $0.components(separatedBy: " ") })
+
     /// Format a SQL query with proper capitalization and newline breaks for clauses.
     public static func format(_ sql: String) -> String {
         let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -150,13 +153,12 @@ public enum SQLFormatter {
         }
 
         // Step 2: Uppercase recognizable keywords (outside strings, comments, and dollar-quotes)
-        let uppercaseKeywords = Set((majorKeywords + inlineKeywords).flatMap { $0.components(separatedBy: " ") })
         var normalizedTokens: [String] = []
 
         for token in tokens {
             if token.hasPrefix("'") || token.hasPrefix("\"") || token.hasPrefix("--") || token.hasPrefix("/*") || token.hasPrefix("$") {
                 normalizedTokens.append(token)
-            } else if uppercaseKeywords.contains(token.uppercased()) {
+            } else if Self.uppercaseKeywords.contains(token.uppercased()) {
                 normalizedTokens.append(token.uppercased())
             } else {
                 normalizedTokens.append(token)
@@ -173,7 +175,7 @@ public enum SQLFormatter {
             // Check two-word major keywords like "GROUP BY", "ORDER BY", "LEFT JOIN", "INSERT INTO"
             if index + 1 < normalizedTokens.count {
                 let twoWords = "\(token) \(normalizedTokens[index + 1])".uppercased()
-                if majorKeywords.contains(twoWords) {
+                if Self.majorKeywordsSet.contains(twoWords) {
                     if !result.isEmpty && !result.hasSuffix("\n") {
                         result.append("\n")
                     }
@@ -183,7 +185,7 @@ public enum SQLFormatter {
                 }
             }
 
-            if majorKeywords.contains(token.uppercased()) {
+            if Self.majorKeywordsSet.contains(token.uppercased()) {
                 if !result.isEmpty && !result.hasSuffix("\n") {
                     result.append("\n")
                 }

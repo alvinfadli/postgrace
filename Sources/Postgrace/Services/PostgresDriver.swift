@@ -279,11 +279,8 @@ public actor PostgresDriver: DatabaseDriverProtocol {
                         if let v = try? cell.decode(String.self) { cellRow.append(.json(v)) } else { cellRow.append(.null) }
                     case .timestamp, .timestamptz:
                         if let date = try? cell.decode(Date.self) {
-                            let formatter = DateFormatter()
-                            formatter.locale = Locale(identifier: "en_US_POSIX")
-                            formatter.timeZone = cell.dataType == .timestamptz ? TimeZone.current : TimeZone(secondsFromGMT: 0)
-                            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                            cellRow.append(.date(formatter.string(from: date)))
+                            let formatted = PostgresDateFormatters.formatTimestamp(date, isLocal: cell.dataType == .timestamptz)
+                            cellRow.append(.date(formatted))
                         } else if let v = try? cell.decode(String.self) {
                             cellRow.append(.date(v))
                         } else {
@@ -291,11 +288,8 @@ public actor PostgresDriver: DatabaseDriverProtocol {
                         }
                     case .date:
                         if let date = try? cell.decode(Date.self) {
-                            let formatter = DateFormatter()
-                            formatter.locale = Locale(identifier: "en_US_POSIX")
-                            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                            formatter.dateFormat = "yyyy-MM-dd"
-                            cellRow.append(.date(formatter.string(from: date)))
+                            let formatted = PostgresDateFormatters.formatDate(date)
+                            cellRow.append(.date(formatted))
                         } else if let v = try? cell.decode(String.self) {
                             cellRow.append(.date(v))
                         } else {
@@ -451,11 +445,8 @@ public actor PostgresDriver: DatabaseDriverProtocol {
                         if let v = try? cell.decode(String.self) { cellRow.append(.json(v)) } else { cellRow.append(.null) }
                     case .timestamp, .timestamptz:
                         if let date = try? cell.decode(Date.self) {
-                            let formatter = DateFormatter()
-                            formatter.locale = Locale(identifier: "en_US_POSIX")
-                            formatter.timeZone = cell.dataType == .timestamptz ? TimeZone.current : TimeZone(secondsFromGMT: 0)
-                            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                            cellRow.append(.date(formatter.string(from: date)))
+                            let formatted = PostgresDateFormatters.formatTimestamp(date, isLocal: cell.dataType == .timestamptz)
+                            cellRow.append(.date(formatted))
                         } else if let v = try? cell.decode(String.self) {
                             cellRow.append(.date(v))
                         } else {
@@ -463,11 +454,8 @@ public actor PostgresDriver: DatabaseDriverProtocol {
                         }
                     case .date:
                         if let date = try? cell.decode(Date.self) {
-                            let formatter = DateFormatter()
-                            formatter.locale = Locale(identifier: "en_US_POSIX")
-                            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                            formatter.dateFormat = "yyyy-MM-dd"
-                            cellRow.append(.date(formatter.string(from: date)))
+                            let formatted = PostgresDateFormatters.formatDate(date)
+                            cellRow.append(.date(formatted))
                         } else if let v = try? cell.decode(String.self) {
                             cellRow.append(.date(v))
                         } else {
@@ -656,5 +644,46 @@ public actor PostgresDriver: DatabaseDriverProtocol {
         default:
             return "PostgreSQL error: \(code.description)"
         }
+    }
+}
+
+/// High-performance thread-safe cached date formatters avoiding thousands of ICU allocations in row loops.
+private final class PostgresDateFormatters: @unchecked Sendable {
+    private static let timestampUTC: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    private static let timestampLocal: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    private static let dateUTC: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static let lock = NSLock()
+
+    static func formatTimestamp(_ date: Date, isLocal: Bool) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return (isLocal ? timestampLocal : timestampUTC).string(from: date)
+    }
+
+    static func formatDate(_ date: Date) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return dateUTC.string(from: date)
     }
 }

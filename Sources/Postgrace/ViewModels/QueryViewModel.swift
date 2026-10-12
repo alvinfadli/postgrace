@@ -81,9 +81,18 @@ public class QueryViewModel {
 
     // MARK: - Query Analysis & Helpers
 
-    /// All statement spans found in `queryText`.
+    private var _cachedSpansText: String?
+    private var _cachedSpans: [SQLStatementSpan] = []
+
+    /// All statement spans found in `queryText`, cached while queryText is unchanged.
     public var statementSpans: [SQLStatementSpan] {
-        SQLScriptSplitter.splitWithSpans(queryText)
+        if let cached = _cachedSpansText, cached == queryText {
+            return _cachedSpans
+        }
+        let spans = SQLScriptSplitter.splitWithSpans(queryText)
+        _cachedSpansText = queryText
+        _cachedSpans = spans
+        return spans
     }
 
     /// Number of SQL statements currently in the editor.
@@ -93,7 +102,9 @@ public class QueryViewModel {
 
     /// The statement span currently at or closest to the cursor.
     public var statementAtCursor: SQLStatementSpan? {
-        SQLScriptSplitter.statement(at: selectedRange.location, in: queryText)
+        let spans = statementSpans
+        guard !spans.isEmpty else { return nil }
+        return SQLScriptSplitter.statement(at: selectedRange.location, spans: spans)
     }
 
     /// The statement result currently selected in the UI.

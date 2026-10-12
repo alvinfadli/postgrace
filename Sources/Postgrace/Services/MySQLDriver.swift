@@ -331,10 +331,23 @@ public actor MySQLDriver: DatabaseDriverProtocol {
         }
 
         let start = ContinuousClock.now
-        var totalRowCount: Int64 = 0
         var cachedColumns: [ResultColumn] = []
 
         do {
+            var streamContinuation: AsyncThrowingStream<([ResultColumn], [CellValue]), Error>.Continuation?
+            let stream = AsyncThrowingStream<([ResultColumn], [CellValue]), Error>(bufferingPolicy: .bufferingNewest(2000)) { continuation in
+                streamContinuation = continuation
+            }
+
+            let consumerTask = Task { () -> Int64 in
+                var count: Int64 = 0
+                for try await (cols, row) in stream {
+                    try await onRow(cols, row)
+                    count += 1
+                }
+                return count
+            }
+
             let cmd = MySQLDirectQueryCommand(sql: sql) { row in
                 if cachedColumns.isEmpty {
                     cachedColumns = row.columnDefinitions.map { col in
@@ -355,13 +368,21 @@ public actor MySQLDriver: DatabaseDriverProtocol {
                     )
                     cellRow.append(cellVal)
                 }
-                Task {
-                    try? await onRow(cachedColumns, cellRow)
-                }
-                totalRowCount += 1
+                _ = streamContinuation?.yield((cachedColumns, cellRow))
             }
 
-            try await conn.send(cmd, logger: logger).get()
+            let sendFuture = conn.send(cmd, logger: logger)
+            sendFuture.whenComplete { result in
+                switch result {
+                case .success:
+                    streamContinuation?.finish()
+                case .failure(let err):
+                    streamContinuation?.finish(throwing: err)
+                }
+            }
+
+            try await sendFuture.get()
+            let totalRowCount = try await consumerTask.value
 
             if cachedColumns.isEmpty {
                 cachedColumns = cmd.columns.map { col in

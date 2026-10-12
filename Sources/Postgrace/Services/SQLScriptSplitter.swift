@@ -31,6 +31,24 @@ public enum SQLScriptSplitter {
         let len = chars.count
         var statementStartCharIndex = 0
 
+        var lastCharOffset = 0
+        var lastStringIndex = sql.startIndex
+
+        func indexForCharOffset(_ offset: Int) -> String.Index {
+            let diff = offset - lastCharOffset
+            if diff >= 0 {
+                let idx = sql.index(lastStringIndex, offsetBy: diff)
+                lastCharOffset = offset
+                lastStringIndex = idx
+                return idx
+            } else {
+                let idx = sql.index(sql.startIndex, offsetBy: offset)
+                lastCharOffset = offset
+                lastStringIndex = idx
+                return idx
+            }
+        }
+
         func addSpan(startChar: Int, endCharExclusive: Int) {
             guard startChar < endCharExclusive else { return }
             var s = startChar
@@ -43,8 +61,8 @@ public enum SQLScriptSplitter {
             }
             guard s <= e else { return }
 
-            let startIdx = sql.index(sql.startIndex, offsetBy: s)
-            let endIdx = sql.index(sql.startIndex, offsetBy: e + 1)
+            let startIdx = indexForCharOffset(s)
+            let endIdx = indexForCharOffset(e + 1)
             let trimmedText = String(sql[startIdx..<endIdx])
             let nsRange = NSRange(startIdx..<endIdx, in: sql)
 
@@ -100,10 +118,11 @@ public enum SQLScriptSplitter {
             // 4. Dollar-quoted string: $$ ... $$ or $tag$ ... $tag$
             if c == "$" {
                 if let (tag, tagEndIndex) = matchDollarTag(chars: chars, startIndex: i) {
+                    let tagChars = Array(tag)
                     i = tagEndIndex
                     while i < len {
-                        if chars[i] == "$" && matchTagAt(chars: chars, index: i, tag: tag) {
-                            i += tag.count
+                        if chars[i] == "$" && matchTagAt(chars: chars, index: i, tagChars: tagChars) {
+                            i += tagChars.count
                             break
                         } else {
                             i += 1
@@ -155,7 +174,11 @@ public enum SQLScriptSplitter {
 
     /// Finds the statement span at or closest to the specified cursor offset (UTF-16 based NSRange location).
     public static func statement(at cursorOffset: Int, in sql: String) -> SQLStatementSpan? {
-        let spans = splitWithSpans(sql)
+        statement(at: cursorOffset, spans: splitWithSpans(sql))
+    }
+
+    /// Finds the statement span at or closest to the cursor offset using pre-computed spans (O(1) re-parsing).
+    public static func statement(at cursorOffset: Int, spans: [SQLStatementSpan]) -> SQLStatementSpan? {
         guard !spans.isEmpty else { return nil }
 
         // Exact match: cursor falls within statement span range (inclusive of borders)
@@ -205,8 +228,7 @@ public enum SQLScriptSplitter {
         return nil
     }
 
-    private static func matchTagAt(chars: [Character], index: Int, tag: String) -> Bool {
-        let tagChars = Array(tag)
+    private static func matchTagAt(chars: [Character], index: Int, tagChars: [Character]) -> Bool {
         guard index + tagChars.count <= chars.count else { return false }
         for j in 0..<tagChars.count {
             if chars[index + j] != tagChars[j] {

@@ -396,9 +396,10 @@ public enum SQLSafetyAnalyzer {
             // Dollar-quoted string: $$ ... $$ or $tag$ ... $tag$
             if c == "$" {
                 if let (tag, tagEndIndex) = matchDollarTag(chars: chars, startIndex: i) {
+                    let tagChars = Array(tag)
                     i = tagEndIndex
                     while i < len {
-                        if chars[i] == "$" && matchTagAt(chars: chars, index: i, tag: tag) {
+                        if chars[i] == "$" && matchTagAt(chars: chars, index: i, tagChars: tagChars) {
                             i += tag.count
                             break
                         }
@@ -501,8 +502,7 @@ public enum SQLSafetyAnalyzer {
         return nil
     }
 
-    private static func matchTagAt(chars: [Character], index: Int, tag: String) -> Bool {
-        let tagChars = Array(tag)
+    private static func matchTagAt(chars: [Character], index: Int, tagChars: [Character]) -> Bool {
         guard index + tagChars.count <= chars.count else { return false }
         for j in 0..<tagChars.count {
             if chars[index + j] != tagChars[j] {

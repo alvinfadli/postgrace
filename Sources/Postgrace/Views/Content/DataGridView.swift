@@ -37,8 +37,15 @@ struct DataGridView: View {
         !currentHiddenColumns.isEmpty
     }
 
+    private var visibleColumnIndices: [(column: ResultColumn, index: Int)] {
+        let hidden = currentHiddenColumns
+        return queryResult.columns.enumerated().compactMap { index, col in
+            hidden.contains(col.name) ? nil : (column: col, index: index)
+        }
+    }
+
     var visibleColumns: [ResultColumn] {
-        queryResult.columns.filter { !currentHiddenColumns.contains($0.name) }
+        visibleColumnIndices.map(\.column)
     }
 
     private func toggleColumnVisibility(_ columnName: String) {
@@ -156,9 +163,9 @@ struct DataGridView: View {
         case .contains:
             return str.localizedCaseInsensitiveContains(trimmedTarget)
         case .startsWith:
-            return str.lowercased().hasPrefix(trimmedTarget.lowercased())
+            return str.range(of: trimmedTarget, options: [.anchored, .caseInsensitive]) != nil
         case .endsWith:
-            return str.lowercased().hasSuffix(trimmedTarget.lowercased())
+            return str.range(of: trimmedTarget, options: [.backwards, .anchored, .caseInsensitive]) != nil
         case .greaterThan:
             if let numCell = Double(str), let numTarget = Double(trimmedTarget) {
                 return numCell > numTarget
@@ -191,8 +198,11 @@ struct DataGridView: View {
         case (_, .null): return true
         case (.int(let x), .int(let y)): return x < y
         case (.double(let x), .double(let y)): return x < y
+        case (.int(let x), .double(let y)): return Double(x) < y
+        case (.double(let x), .int(let y)): return x < Double(y)
         case (.bool(let x), .bool(let y)): return !x && y
         case (.date(let x), .date(let y)): return x < y
+        case (.string(let x), .string(let y)): return x.localizedStandardCompare(y) == .orderedAscending
         default:
             return a.displayString.localizedStandardCompare(b.displayString) == .orderedAscending
         }
@@ -269,8 +279,7 @@ struct DataGridView: View {
                                 DataGridRowView(
                                     rowIndex: rowIndex,
                                     row: sortedRows[rowIndex],
-                                    columns: visibleColumns,
-                                    allColumns: queryResult.columns,
+                                    visibleColumnIndices: visibleColumnIndices,
                                     columnWidths: columnWidths,
                                     defaultWidthForColumn: { defaultWidth(for: $0) },
                                     availableWidth: proxy.size.width,
@@ -804,8 +813,7 @@ struct SelectedGridCell: Equatable, Sendable {
 struct DataGridRowView: View {
     let rowIndex: Int
     let row: [CellValue]
-    let columns: [ResultColumn]
-    let allColumns: [ResultColumn]
+    let visibleColumnIndices: [(column: ResultColumn, index: Int)]
     let columnWidths: [String: CGFloat]
     let defaultWidthForColumn: (ResultColumn) -> CGFloat
     let availableWidth: CGFloat
@@ -840,8 +848,9 @@ struct DataGridRowView: View {
                 )
 
             // Cell values for visible columns
-            ForEach(columns, id: \.name) { column in
-                let colIndex = allColumns.firstIndex(where: { $0.name == column.name }) ?? 0
+            ForEach(visibleColumnIndices, id: \.column.name) { item in
+                let column = item.column
+                let colIndex = item.index
                 let cellValue = colIndex < row.count ? row[colIndex] : .null
                 let width = columnWidths[column.name] ?? defaultWidthForColumn(column)
                 let isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.columnName == column.name

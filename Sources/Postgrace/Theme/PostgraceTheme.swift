@@ -115,6 +115,62 @@ public enum PostgraceTheme {
         appearance.isDark ? NSColor(hex: "#72BFEC") : NSColor(hex: "#1B4F68")
     }))
     
+    // MARK: - SQL Syntax Highlighting Tokens (FR-2.2 Pastel Theme Mapping)
+    
+    /// SQL Keywords (`SELECT`, `FROM`, `WHERE`, `JOIN`, `GROUP BY`, etc.): Royal Blue (#2563EB Light) / Pastel Sky Blue (#93C5FD Dark)
+    public static let sqlKeywordNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#93C5FD") : NSColor(hex: "#2563EB")
+    })
+    public static let sqlKeyword = Color(nsColor: sqlKeywordNSColor)
+    
+    /// DDL/DML Commands (`INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, `DROP`, `TRUNCATE`): Crimson (#DC2626 Light) / Pastel Coral (#FCA5A5 Dark)
+    public static let sqlCommandNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#FCA5A5") : NSColor(hex: "#DC2626")
+    })
+    public static let sqlCommand = Color(nsColor: sqlCommandNSColor)
+    
+    /// Data Types (`INT`, `BIGINT`, `VARCHAR`, `TEXT`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`, `UUID`): Forest Mint (#059669 Light) / Pastel Mint (#A7F3D0 Dark)
+    public static let sqlDataTypeNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#A7F3D0") : NSColor(hex: "#059669")
+    })
+    public static let sqlDataType = Color(nsColor: sqlDataTypeNSColor)
+    
+    /// Built-in Functions (`COUNT`, `SUM`, `AVG`, `NOW`, `COALESCE`, `DATE_TRUNC`): Warm Ochre (#D97706 Light) / Pastel Amber (#FDE047 Dark)
+    public static let sqlFunctionNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#FDE047") : NSColor(hex: "#D97706")
+    })
+    public static let sqlFunction = Color(nsColor: sqlFunctionNSColor)
+    
+    /// String Literals (`'...'`, `$$...$$`): Rust Orange (#C2410C Light) / Pastel Peach (#FDBA74 Dark)
+    public static let sqlStringNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#FDBA74") : NSColor(hex: "#C2410C")
+    })
+    public static let sqlString = Color(nsColor: sqlStringNSColor)
+    
+    /// Numeric, Boolean & Null Literals (`42`, `3.14`, `TRUE`, `FALSE`, `NULL`): Deep Violet (#7C3AED Light) / Pastel Lavender (#C4B5FD Dark)
+    public static let sqlNumberNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#C4B5FD") : NSColor(hex: "#7C3AED")
+    })
+    public static let sqlNumber = Color(nsColor: sqlNumberNSColor)
+    
+    /// Identifiers (Schema, Table, Column names, `"quoted"`, `` `backtick` ``): Dark Slate (#1E293B Light) / Soft Slate (#E2E8F0 Dark)
+    public static let sqlIdentifierNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#E2E8F0") : NSColor(hex: "#1E293B")
+    })
+    public static let sqlIdentifier = Color(nsColor: sqlIdentifierNSColor)
+    
+    /// Comments (`-- ...`, `# ...`, `/* ... */`): Cool Grey (#94A3B8 Light) / Muted Slate (#64748B Dark)
+    public static let sqlCommentNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#64748B") : NSColor(hex: "#94A3B8")
+    })
+    public static let sqlComment = Color(nsColor: sqlCommentNSColor)
+    
+    /// Operators & Type Casts (`=`, `!=`, `<=`, `>=`, `::`, `->`, `->>`): Deep Magenta (#DB2777 Light) / Pastel Pink (#F472B6 Dark)
+    public static let sqlOperatorNSColor = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.isDark ? NSColor(hex: "#F472B6") : NSColor(hex: "#DB2777")
+    })
+    public static let sqlOperator = Color(nsColor: sqlOperatorNSColor)
+    
     // MARK: - Typography & Geometry Tokens
     
     /// Option B Architectural Micro-Box badge corner radius (4.0pt)

@@ -186,9 +186,7 @@ struct CreateDatabaseSheet: View {
                     .font(.caption.bold())
                     .foregroundColor(.secondary)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    Text(generatedSql)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(PostgraceTheme.accentSky)
+                    Text(SQLSyntaxHighlighter.attributedString(for: generatedSql, fontSize: 11))
                         .padding(8)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

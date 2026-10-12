@@ -47,8 +47,13 @@ struct SQLEditorView: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
 
-        textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textColor = NSColor.textColor
+        let editorFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.font = editorFont
+        textView.textColor = PostgraceTheme.sqlIdentifierNSColor
+        textView.typingAttributes = [
+            .font: editorFont,
+            .foregroundColor: PostgraceTheme.sqlIdentifierNSColor
+        ]
         textView.drawsBackground = false
         textView.isRichText = false
         textView.allowsUndo = true
@@ -76,15 +81,16 @@ struct SQLEditorView: NSViewRepresentable {
         scrollView.verticalRulerView = rulerView
         scrollView.rulersVisible = true
 
-        // Initial text
-        if !text.isEmpty {
-            textView.string = text
-        }
-
         context.coordinator.textView = textView
         context.coordinator.rulerView = rulerView
         context.coordinator.completionController = completionController
         context.coordinator.setupScrollObserver(scrollView: scrollView)
+
+        // Initial text & syntax highlighting
+        if !text.isEmpty {
+            textView.string = text
+            context.coordinator.applySyntaxHighlighting(to: textView)
+        }
 
         DispatchQueue.main.async {
             rulerView.needsDisplay = true
@@ -101,6 +107,7 @@ struct SQLEditorView: NSViewRepresentable {
         if textView.string != text {
             let prevRange = textView.selectedRange()
             textView.string = text
+            context.coordinator.applySyntaxHighlighting(to: textView)
             let safeLoc = min(prevRange.location, (text as NSString).length)
             textView.setSelectedRange(NSRange(location: safeLoc, length: 0))
             context.coordinator.rulerView?.needsDisplay = true
@@ -115,6 +122,10 @@ struct SQLEditorView: NSViewRepresentable {
         weak var rulerView: LineNumberRulerView?
         var completionController: SQLCompletionController?
         private var observerToken: NSObjectProtocol?
+        private var deferredHighlightTask: Task<Void, Never>?
+
+        private static let immediateHighlightThreshold = 25_000
+        private static let viewportPaddingChars = 4_000
 
         init(_ parent: SQLEditorView) {
             self.parent = parent
@@ -124,6 +135,7 @@ struct SQLEditorView: NSViewRepresentable {
             if let token = observerToken {
                 NotificationCenter.default.removeObserver(token)
             }
+            deferredHighlightTask?.cancel()
             completionController?.dismiss()
         }
 
@@ -139,9 +151,55 @@ struct SQLEditorView: NSViewRepresentable {
             }
         }
 
+        func applySyntaxHighlighting(to tv: NSTextView) {
+            guard !tv.hasMarkedText(), let textStorage = tv.textStorage else { return }
+            let font = tv.font ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            let length = textStorage.length
+
+            deferredHighlightTask?.cancel()
+
+            guard length > 0 else {
+                tv.typingAttributes = [
+                    .font: font,
+                    .foregroundColor: PostgraceTheme.sqlIdentifierNSColor
+                ]
+                return
+            }
+
+            if length <= Self.immediateHighlightThreshold {
+                SQLSyntaxHighlighter.highlight(textStorage, font: font)
+            } else {
+                // Highlight visible viewport immediately for zero typing lag, then full buffer after 50ms debounce
+                if let layoutManager = tv.layoutManager, let textContainer = tv.textContainer {
+                    let visibleGlyphs = layoutManager.glyphRange(forBoundingRect: tv.visibleRect, in: textContainer)
+                    let visibleChars = layoutManager.characterRange(forGlyphRange: visibleGlyphs, actualGlyphRange: nil)
+                    let paddedStart = max(0, visibleChars.location - Self.viewportPaddingChars)
+                    let paddedEnd = min(length, NSMaxRange(visibleChars) + Self.viewportPaddingChars)
+                    let paddedRange = NSRange(location: paddedStart, length: paddedEnd - paddedStart)
+                    SQLSyntaxHighlighter.highlight(textStorage, font: font, in: paddedRange)
+                }
+
+                deferredHighlightTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    guard !Task.isCancelled,
+                          let self = self,
+                          let tv = self.textView,
+                          !tv.hasMarkedText(),
+                          let storage = tv.textStorage else { return }
+                    SQLSyntaxHighlighter.highlight(storage, font: font)
+                }
+            }
+
+            tv.typingAttributes = [
+                .font: font,
+                .foregroundColor: PostgraceTheme.sqlIdentifierNSColor
+            ]
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let tv = textView else { return }
             parent.text = tv.string
+            applySyntaxHighlighting(to: tv)
             updateSelection(tv)
             rulerView?.needsDisplay = true
 

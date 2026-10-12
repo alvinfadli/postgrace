@@ -263,9 +263,7 @@ struct QuickFilterBarView: View {
                         // SQL WHERE Preview
                         let sql = dataVM.buildFilterClause()
                         if !sql.isEmpty {
-                            Text("WHERE \(sql)")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(.secondary.opacity(0.7))
+                            Text(SQLSyntaxHighlighter.attributedString(for: "WHERE \(sql)", fontSize: 10))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }

@@ -52,5 +52,14 @@ final class ThemeTests: XCTestCase {
         _ = PostgraceTheme.border
         _ = PostgraceTheme.borderSubtle
         _ = PostgraceTheme.accentSage
+        _ = PostgraceTheme.sqlKeyword
+        _ = PostgraceTheme.sqlCommand
+        _ = PostgraceTheme.sqlDataType
+        _ = PostgraceTheme.sqlFunction
+        _ = PostgraceTheme.sqlString
+        _ = PostgraceTheme.sqlNumber
+        _ = PostgraceTheme.sqlIdentifier
+        _ = PostgraceTheme.sqlComment
+        _ = PostgraceTheme.sqlOperator
     }
 }

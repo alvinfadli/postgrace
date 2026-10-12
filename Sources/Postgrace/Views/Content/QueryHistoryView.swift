@@ -77,9 +77,9 @@ struct QueryHistoryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Query preview (first line, truncated)
-            Text(item.query.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? item.query)
-                .font(.system(.caption, design: .monospaced))
+            // Query preview (first line, truncated) with SQL syntax coloring
+            let previewQuery = item.query.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? item.query
+            Text(SQLSyntaxHighlighter.attributedString(for: previewQuery, fontSize: 11))
                 .lineLimit(2)
                 .truncationMode(.tail)
 

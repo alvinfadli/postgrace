@@ -238,9 +238,7 @@ struct CreateTableSheet: View {
                     .font(.caption.bold())
                     .foregroundColor(.secondary)
                 ScrollView(.horizontal) {
-                    Text(generatedSql)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundColor(PostgraceTheme.accentSky)
+                    Text(SQLSyntaxHighlighter.attributedString(for: generatedSql, fontSize: 10.5))
                         .padding(8)
                 }
                 .frame(maxWidth: .infinity, minHeight: 65, maxHeight: 75, alignment: .topLeading)

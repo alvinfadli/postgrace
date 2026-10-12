@@ -85,9 +85,7 @@ struct SafeModeConfirmationSheet: View {
                     .foregroundColor(.secondary)
 
                 ScrollView([.horizontal, .vertical]) {
-                    Text(formattedSqlPreview)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.primary)
+                    Text(SQLSyntaxHighlighter.attributedString(for: formattedSqlPreview, fontSize: 11))
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .textSelection(.enabled)

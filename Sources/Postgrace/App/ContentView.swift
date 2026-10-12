@@ -56,7 +56,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.2), value: connectionViewModel.isConnected)
         .background(
             WindowAccessor { window in
-                window.appearance = NSAppearance(named: .darkAqua)
+                window.appearance = nil
                 window.titlebarAppearsTransparent = true
                 window.titleVisibility = .hidden
                 window.styleMask.insert(.fullSizeContentView)

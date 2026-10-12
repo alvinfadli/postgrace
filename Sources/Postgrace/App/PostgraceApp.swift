@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         DispatchQueue.main.async {
             if let window = NSApplication.shared.windows.first {
-                window.appearance = NSAppearance(named: .darkAqua)
+                window.appearance = nil
                 window.makeKeyAndOrderFront(nil)
                 window.titlebarAppearsTransparent = true
                 window.titleVisibility = .hidden
@@ -81,7 +81,6 @@ struct PostgraceApp: App {
                 .environment(tabViewModel)
                 .environment(exportViewModel)
                 .environment(importViewModel)
-                .preferredColorScheme(.dark)
                 .tint(PostgraceTheme.accentEmerald)
         }
         .windowStyle(.hiddenTitleBar)

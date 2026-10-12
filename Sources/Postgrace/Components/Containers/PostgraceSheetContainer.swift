@@ -67,6 +67,5 @@ public struct PostgraceSheetContainer<Content: View, Footer: View>: View {
         .frame(width: width)
         .frame(height: height)
         .background(PostgraceTheme.surface)
-        .preferredColorScheme(.dark)
     }
 }

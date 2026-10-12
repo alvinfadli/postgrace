@@ -134,7 +134,10 @@ public enum PostgraceTheme {
 
 extension NSAppearance {
     var isDark: Bool {
-        bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return true
+        }
+        return name.rawValue.lowercased().contains("dark")
     }
 }
 

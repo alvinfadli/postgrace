@@ -136,6 +136,5 @@ struct SafeModeConfirmationSheet: View {
         .padding(20)
         .frame(width: 520, height: 420)
         .background(PostgraceTheme.surface)
-        .preferredColorScheme(.dark)
     }
 }

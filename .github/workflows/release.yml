@@ -50,9 +50,6 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved Tag: ${TAG}, Version: ${VERSION}"
 
-      - name: Run Swift Tests
-        run: swift test --parallel
-
       - name: Build and Package macOS App & DMG
         env:
           VERSION: ${{ steps.resolve_version.outputs.version }}

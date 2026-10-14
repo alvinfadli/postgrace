@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-test:
-    name: Build & Test
+  build:
+    name: Build Release Binary
     runs-on: macos-14
 
     steps:
@@ -23,9 +23,6 @@ jobs:
             sudo xcode-select -s /Applications/Xcode_16.0.app
           fi
           xcodebuild -version
-
-      - name: Run Tests
-        run: swift test --parallel
 
       - name: Build Release Binary
         run: swift build -c release

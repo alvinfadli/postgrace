@@ -12,14 +12,13 @@ Postgrace includes automated GitHub Actions workflows in `.github/workflows/rele
 
 Whenever a tag prefixed with `v` (e.g. `v0.1.1`) is pushed to GitHub, the workflow automatically:
 1. Spins up an Apple Silicon `macos-14` runner.
-2. Runs the full test suite (`swift test --parallel`).
-3. Compiles the release binary (`swift build -c release`).
-4. Bundles `Postgrace.app`, codesigns (ad-hoc or Developer ID), and creates:
+2. Compiles the release binary (`swift build -c release`).
+3. Bundles `Postgrace.app`, codesigns (ad-hoc or Developer ID), and creates:
    - `Postgrace-<version>.dmg`
    - `Postgrace-<version>.zip`
    - `Postgrace.dmg`
    - `SHA256SUMS.txt`
-5. Automatically creates the GitHub Release, attaches all 4 artifacts, and generates release notes from commit history.
+4. Automatically creates the GitHub Release, attaches all 4 artifacts, and generates release notes from commit history.
 
 To release:
 ```bash

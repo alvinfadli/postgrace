@@ -267,10 +267,21 @@ struct DataGridView: View {
         return max(110, min(320, estimated))
     }
 
+    private var visibleGridColumns: [VisibleGridColumn] {
+        visibleColumnIndices.map { item in
+            VisibleGridColumn(
+                column: item.column,
+                index: item.index,
+                width: columnWidths[item.column.name] ?? defaultWidth(for: item.column)
+            )
+        }
+    }
+
     // MARK: - Result Grid
 
     private var resultGrid: some View {
-        GeometryReader { proxy in
+        let gridColumns = visibleGridColumns
+        return GeometryReader { proxy in
             ScrollView([.horizontal, .vertical]) {
                 VStack(alignment: .leading, spacing: 0) {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -279,11 +290,9 @@ struct DataGridView: View {
                                 DataGridRowView(
                                     rowIndex: rowIndex,
                                     row: sortedRows[rowIndex],
-                                    visibleColumnIndices: visibleColumnIndices,
-                                    columnWidths: columnWidths,
-                                    defaultWidthForColumn: { defaultWidth(for: $0) },
+                                    visibleColumns: gridColumns,
                                     availableWidth: proxy.size.width,
-                                    selectedCell: selectedCell,
+                                    selectedColumn: selectedCell?.rowIndex == rowIndex ? selectedCell?.columnName : nil,
                                     onSelectCell: { cell in
                                         selectedCell = cell
                                     },
@@ -304,6 +313,7 @@ struct DataGridView: View {
                                         applyColumnFilter(column: col, op: op, value: val)
                                     }
                                 )
+                                .equatable()
                             }
                         } header: {
                             headerRow(availableWidth: proxy.size.width)
@@ -810,14 +820,20 @@ struct SelectedGridCell: Equatable, Sendable {
     let columnName: String
 }
 
-struct DataGridRowView: View {
+/// Precomputed visible column metadata and width for fast row rendering and Equatable diffing.
+struct VisibleGridColumn: Equatable, Identifiable, Sendable {
+    var id: String { column.name }
+    let column: ResultColumn
+    let index: Int
+    let width: CGFloat
+}
+
+struct DataGridRowView: View, Equatable {
     let rowIndex: Int
     let row: [CellValue]
-    let visibleColumnIndices: [(column: ResultColumn, index: Int)]
-    let columnWidths: [String: CGFloat]
-    let defaultWidthForColumn: (ResultColumn) -> CGFloat
+    let visibleColumns: [VisibleGridColumn]
     let availableWidth: CGFloat
-    let selectedCell: SelectedGridCell?
+    let selectedColumn: String?
     let onSelectCell: (SelectedGridCell) -> Void
     let onCopyCell: (String) -> Void
     let onCopyColumn: (String) -> Void
@@ -826,7 +842,14 @@ struct DataGridRowView: View {
     let onFilterCell: (String, FilterOperator, String) -> Void
 
     @State private var isHovered: Bool = false
-    @State private var hoveredColumn: String? = nil
+
+    static func == (lhs: DataGridRowView, rhs: DataGridRowView) -> Bool {
+        lhs.rowIndex == rhs.rowIndex &&
+        lhs.selectedColumn == rhs.selectedColumn &&
+        lhs.availableWidth == rhs.availableWidth &&
+        lhs.visibleColumns == rhs.visibleColumns &&
+        lhs.row == rhs.row
+    }
 
     var body: some View {
         let zebraBg = rowIndex % 2 == 0 ? PostgraceTheme.canvas : PostgraceTheme.surface.opacity(0.35)
@@ -848,47 +871,13 @@ struct DataGridRowView: View {
                 )
 
             // Cell values for visible columns
-            ForEach(visibleColumnIndices, id: \.column.name) { item in
+            ForEach(visibleColumns) { item in
                 let column = item.column
                 let colIndex = item.index
                 let cellValue = colIndex < row.count ? row[colIndex] : .null
-                let width = columnWidths[column.name] ?? defaultWidthForColumn(column)
-                let isSelected = selectedCell?.rowIndex == rowIndex && selectedCell?.columnName == column.name
-                let isCellHovered = hoveredColumn == column.name
+                let isSelected = selectedColumn == column.name
 
-                cellView(for: cellValue, column: column, isSelected: isSelected, isHovered: isCellHovered)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .frame(width: width, alignment: .leading)
-                    .background(
-                        isSelected ? PostgraceTheme.accentSky.opacity(0.12) : Color.clear
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(isSelected ? PostgraceTheme.accentSky : Color.clear, lineWidth: 1.5)
-                    )
-                    .overlay(
-                        Rectangle()
-                            .frame(width: PostgraceTheme.hairlineBorder)
-                            .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.4)),
-                        alignment: .trailing
-                    )
-                    .onHover { hovering in
-                        if hovering {
-                            hoveredColumn = column.name
-                        } else if hoveredColumn == column.name {
-                            hoveredColumn = nil
-                        }
-                    }
-                    .simultaneousGesture(
-                        TapGesture(count: 2).onEnded {
-                            onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
-                            onCopyCell(cellValue.displayString)
-                        }
-                    )
-                    .onTapGesture {
-                        onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
-                    }
+                cellView(for: cellValue, column: column, width: item.width, isSelected: isSelected)
             }
 
             Spacer(minLength: 0)
@@ -898,7 +887,8 @@ struct DataGridRowView: View {
         .overlay(
             Rectangle()
                 .frame(height: PostgraceTheme.hairlineBorder)
-                .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.3)),
+                .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.3))
+                .allowsHitTesting(false),
             alignment: .bottom
         )
         .onHover { hovering in
@@ -915,29 +905,35 @@ struct DataGridRowView: View {
     }
 
     @ViewBuilder
-    private func cellView(for cellValue: CellValue, column: ResultColumn, isSelected: Bool, isHovered: Bool) -> some View {
+    private func cellView(for cellValue: CellValue, column: ResultColumn, width: CGFloat, isSelected: Bool) -> some View {
         HStack(spacing: 4) {
             cellContent(for: cellValue)
 
             Spacer(minLength: 0)
-
-            if isHovered || isSelected {
-                Button {
-                    onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
-                    onCopyCell(cellValue.displayString)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 9))
-                        .foregroundColor(isSelected ? PostgraceTheme.accentSky : .secondary)
-                        .padding(2.5)
-                        .background(PostgraceTheme.surfaceElevated.opacity(0.9))
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
-                }
-                .buttonStyle(.plain)
-                .help("Copy cell value (⌘C)")
-            }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(width: width, alignment: .leading)
+        .frame(maxHeight: .infinity)
+        .background(
+            isSelected ? PostgraceTheme.accentSky.opacity(0.12) : Color.clear
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 2)
+                .stroke(isSelected ? PostgraceTheme.accentSky : Color.clear, lineWidth: 1.5)
+                .allowsHitTesting(false)
+        )
+        .overlay(
+            Rectangle()
+                .frame(width: PostgraceTheme.hairlineBorder)
+                .foregroundColor(PostgraceTheme.borderSubtle.opacity(0.4))
+                .allowsHitTesting(false),
+            alignment: .trailing
+        )
         .contentShape(Rectangle())
+        .onTapGesture {
+            onSelectCell(SelectedGridCell(rowIndex: rowIndex, columnName: column.name))
+        }
         .contextMenu {
             // Prominent Copy Cell Value at the top
             Button {

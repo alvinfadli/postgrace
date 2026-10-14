@@ -79,12 +79,17 @@ public actor PostgresDriver: DatabaseDriverProtocol {
 
         let tlsConfig = try makeTLSConfiguration(for: config)
 
+        let cleanHost = config.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUsername = config.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDatabase = config.database.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPassword = password.trimmingCharacters(in: .newlines)
+
         let pgConfig = PostgresConnection.Configuration(
-            host: config.host,
+            host: cleanHost,
             port: config.port,
-            username: config.username,
-            password: password,
-            database: config.database,
+            username: cleanUsername,
+            password: cleanPassword,
+            database: cleanDatabase,
             tls: tlsConfig
         )
 
@@ -171,12 +176,17 @@ public actor PostgresDriver: DatabaseDriverProtocol {
     public func testConnection(config: SavedConnection, password: String) async throws -> Bool {
         let tlsConfig = try makeTLSConfiguration(for: config)
 
+        let cleanHost = config.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUsername = config.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDatabase = config.database.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPassword = password.trimmingCharacters(in: .newlines)
+
         let pgConfig = PostgresConnection.Configuration(
-            host: config.host,
+            host: cleanHost,
             port: config.port,
-            username: config.username,
-            password: password,
-            database: config.database,
+            username: cleanUsername,
+            password: cleanPassword,
+            database: cleanDatabase,
             tls: tlsConfig
         )
 

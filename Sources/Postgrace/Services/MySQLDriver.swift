@@ -95,13 +95,16 @@ public actor MySQLDriver: DatabaseDriverProtocol {
         }
 
         let tlsConfig = makeTLSConfiguration(for: config)
+        let cleanUsername = config.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDatabase = config.database.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPassword = password.trimmingCharacters(in: .newlines)
 
         do {
             let conn = try await MySQLConnection.connect(
                 to: socketAddress,
-                username: config.username,
-                database: config.database,
-                password: password.isEmpty ? nil : password,
+                username: cleanUsername,
+                database: cleanDatabase,
+                password: cleanPassword.isEmpty ? nil : cleanPassword,
                 tlsConfiguration: tlsConfig,
                 serverHostname: host,
                 logger: logger,
@@ -163,12 +166,15 @@ public actor MySQLDriver: DatabaseDriverProtocol {
         do {
             let socketAddress = try SocketAddress.makeAddressResolvingHost(host, port: port)
             let tlsConfig = makeTLSConfiguration(for: config)
+            let cleanUsername = config.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanDatabase = config.database.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanPassword = password.trimmingCharacters(in: .newlines)
 
             let tempConn = try await MySQLConnection.connect(
                 to: socketAddress,
-                username: config.username,
-                database: config.database,
-                password: password.isEmpty ? nil : password,
+                username: cleanUsername,
+                database: cleanDatabase,
+                password: cleanPassword.isEmpty ? nil : cleanPassword,
                 tlsConfiguration: tlsConfig,
                 serverHostname: host,
                 logger: logger,

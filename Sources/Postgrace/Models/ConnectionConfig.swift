@@ -88,6 +88,21 @@ public enum HubInspectorMode: String, CaseIterable {
     case create
 }
 
+/// The input mode for configuring a database connection (standard discrete parameters vs. full connection string).
+public enum ConnectionInputMode: String, CaseIterable, Identifiable, Codable {
+    case parameters = "Parameters"
+    case connectionString = "Connection String"
+
+    public var id: String { rawValue }
+
+    public var iconName: String {
+        switch self {
+        case .parameters: return "slider.horizontal.3"
+        case .connectionString: return "link"
+        }
+    }
+}
+
 /// Represents a visual color tag for a connection in the sidebar.
 public enum ConnectionColor: String, Codable, CaseIterable, Hashable {
     case red
@@ -346,10 +361,27 @@ extension SavedConnection {
         return "\(scheme)://\(authPart)\(host):\(port)/\(database)\(queryString)"
     }
 
-    /// Parses a database connection URI (Supabase, Neon, RDS, PlanetScale, Local Docker)
+    /// Parses a database connection string (URI or PostgreSQL key-value format)
     /// into a SavedConnection and password pair.
+    public static func parse(connectionString: String) -> (connection: SavedConnection, password: String)? {
+        let trimmed = connectionString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.range(of: "://") != nil {
+            return parseURIString(trimmed)
+        } else if trimmed.contains("=") && (trimmed.contains("host=") || trimmed.contains("host ") || trimmed.contains("dbname=") || trimmed.contains("user=")) {
+            return parseKeyValueString(trimmed)
+        }
+        return nil
+    }
+
+    /// Legacy alias for parse(connectionString:).
     public static func parse(uriString: String) -> (connection: SavedConnection, password: String)? {
-        let trimmed = uriString.trimmingCharacters(in: .whitespacesAndNewlines)
+        parse(connectionString: uriString)
+    }
+
+    /// Parses a database connection URI (PostgreSQL, MySQL, MariaDB)
+    private static func parseURIString(_ trimmed: String) -> (connection: SavedConnection, password: String)? {
         guard let schemeSeparatorRange = trimmed.range(of: "://") else { return nil }
 
         let scheme = String(trimmed[..<schemeSeparatorRange.lowerBound]).lowercased()
@@ -369,20 +401,31 @@ extension SavedConnection {
 
         // Try standard URLComponents first
         if let components = URLComponents(string: trimmed), let host = components.host, !host.isEmpty {
-            let user = components.user ?? engine.defaultUsername
-            let password = components.password ?? ""
+            let rawUser = components.user ?? ""
+            let user = (rawUser.removingPercentEncoding ?? rawUser).isEmpty ? engine.defaultUsername : (rawUser.removingPercentEncoding ?? rawUser)
+            let rawPassword = components.password ?? ""
+            let password = rawPassword.removingPercentEncoding ?? rawPassword
             let port = components.port ?? engine.defaultPort
             let rawPath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            let database = rawPath.isEmpty ? engine.defaultDatabase : rawPath
+            let decodedPath = rawPath.removingPercentEncoding ?? rawPath
+            let database = decodedPath.isEmpty ? engine.defaultDatabase : decodedPath
 
             var sslMode: SSLMode = .disable
+            var caCertPath: String? = nil
+
             if let items = components.queryItems {
                 for item in items {
-                    if item.name.lowercased() == "sslmode", let val = item.value?.lowercased() {
-                        if val == "require" { sslMode = .require }
-                        else if val == "verify-ca" { sslMode = .verifyCA }
-                        else if val == "verify-full" { sslMode = .verifyFull }
-                        else if val == "disable" { sslMode = .disable }
+                    let itemName = item.name.lowercased()
+                    let itemVal = item.value?.lowercased() ?? ""
+                    if itemName == "sslmode" {
+                        if itemVal == "require" || itemVal == "prefer" || itemVal == "allow" { sslMode = .require }
+                        else if itemVal == "verify-ca" { sslMode = .verifyCA }
+                        else if itemVal == "verify-full" { sslMode = .verifyFull }
+                        else if itemVal == "disable" { sslMode = .disable }
+                    } else if itemName == "ssl" && (itemVal == "true" || itemVal == "1") {
+                        sslMode = .require
+                    } else if itemName == "sslrootcert" || itemName == "sslcert" {
+                        caCertPath = item.value
                     }
                 }
             } else if host.contains("supabase.co") || host.contains("neon.tech") || host.contains("aws.com") {
@@ -397,7 +440,8 @@ extension SavedConnection {
                 port: port,
                 username: user,
                 database: database,
-                sslMode: sslMode
+                sslMode: sslMode,
+                caCertPath: caCertPath
             )
             return (conn, password)
         }
@@ -426,10 +470,12 @@ extension SavedConnection {
             hostPortPart = String(authHostPart[authHostPart.index(after: atIndex)...])
 
             if let colonIndex = auth.firstIndex(of: ":") {
-                username = String(auth[..<colonIndex])
-                password = String(auth[auth.index(after: colonIndex)...])
+                let rawUser = String(auth[..<colonIndex])
+                let rawPwd = String(auth[auth.index(after: colonIndex)...])
+                username = rawUser.removingPercentEncoding ?? rawUser
+                password = rawPwd.removingPercentEncoding ?? rawPwd
             } else {
-                username = auth
+                username = auth.removingPercentEncoding ?? auth
             }
         }
 
@@ -444,14 +490,16 @@ extension SavedConnection {
         }
 
         guard !host.isEmpty else { return nil }
-        let database = pathString.isEmpty ? engine.defaultDatabase : pathString
+        let rawDecodedPath = pathString.removingPercentEncoding ?? pathString
+        let database = rawDecodedPath.isEmpty ? engine.defaultDatabase : rawDecodedPath
 
         var sslMode: SSLMode = .disable
-        if queryString.lowercased().contains("sslmode=require") {
+        let lowerQuery = queryString.lowercased()
+        if lowerQuery.contains("sslmode=require") || lowerQuery.contains("sslmode=prefer") || lowerQuery.contains("ssl=true") {
             sslMode = .require
-        } else if queryString.lowercased().contains("sslmode=verify-full") {
+        } else if lowerQuery.contains("sslmode=verify-full") {
             sslMode = .verifyFull
-        } else if queryString.lowercased().contains("sslmode=verify-ca") {
+        } else if lowerQuery.contains("sslmode=verify-ca") {
             sslMode = .verifyCA
         } else if host.contains("supabase.co") || host.contains("neon.tech") {
             sslMode = .require
@@ -466,6 +514,109 @@ extension SavedConnection {
             username: username,
             database: database,
             sslMode: sslMode
+        )
+        return (conn, password)
+    }
+
+    /// Parses a PostgreSQL libpq-style key-value connection string
+    /// e.g. "host=localhost port=5432 dbname=mydb user=postgres password=secret sslmode=require"
+    private static func parseKeyValueString(_ text: String) -> (connection: SavedConnection, password: String)? {
+        var pairs: [String: String] = [:]
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            // Skip leading whitespace
+            while index < text.endIndex && text[index].isWhitespace {
+                index = text.index(after: index)
+            }
+            guard index < text.endIndex else { break }
+
+            // Extract key up to '='
+            let keyStart = index
+            while index < text.endIndex && text[index] != "=" && !text[index].isWhitespace {
+                index = text.index(after: index)
+            }
+            guard index < text.endIndex && text[index] == "=" else { break }
+            let key = String(text[keyStart..<index]).trimmingCharacters(in: .whitespaces).lowercased()
+            index = text.index(after: index) // skip '='
+
+            // Skip whitespace after '='
+            while index < text.endIndex && text[index].isWhitespace {
+                index = text.index(after: index)
+            }
+            guard index < text.endIndex else {
+                pairs[key] = ""
+                break
+            }
+
+            // Extract value (respecting single or double quotes)
+            var value = ""
+            if text[index] == "'" || text[index] == "\"" {
+                let quote = text[index]
+                index = text.index(after: index)
+                let valStart = index
+                while index < text.endIndex && text[index] != quote {
+                    if text[index] == "\\" {
+                        let next = text.index(after: index)
+                        if next < text.endIndex {
+                            index = text.index(after: next)
+                            continue
+                        }
+                    }
+                    index = text.index(after: index)
+                }
+                value = String(text[valStart..<index])
+                    .replacingOccurrences(of: "\\'", with: "'")
+                    .replacingOccurrences(of: "\\\"", with: "\"")
+                if index < text.endIndex && text[index] == quote {
+                    index = text.index(after: index)
+                }
+            } else {
+                let valStart = index
+                while index < text.endIndex && !text[index].isWhitespace {
+                    index = text.index(after: index)
+                }
+                value = String(text[valStart..<index])
+            }
+            pairs[key] = value
+        }
+
+        guard let host = pairs["host"] ?? pairs["hostaddr"], !host.isEmpty else {
+            return nil
+        }
+
+        let engine = DatabaseEngine.postgresql
+        let port = Int(pairs["port"] ?? "") ?? engine.defaultPort
+        let database = pairs["dbname"] ?? pairs["database"] ?? engine.defaultDatabase
+        let username = pairs["user"] ?? pairs["username"] ?? engine.defaultUsername
+        let password = pairs["password"] ?? ""
+
+        var sslMode: SSLMode = .disable
+        if let mode = pairs["sslmode"]?.lowercased() {
+            if mode == "require" || mode == "prefer" || mode == "allow" {
+                sslMode = .require
+            } else if mode == "verify-ca" {
+                sslMode = .verifyCA
+            } else if mode == "verify-full" {
+                sslMode = .verifyFull
+            } else if mode == "disable" {
+                sslMode = .disable
+            }
+        } else if pairs["ssl"]?.lowercased() == "true" || host.contains("supabase.co") || host.contains("neon.tech") {
+            sslMode = .require
+        }
+
+        let caCert = pairs["sslrootcert"] ?? pairs["sslcert"]
+        let name = "\(database) on \(host)"
+        let conn = SavedConnection(
+            name: name,
+            engine: engine,
+            host: host,
+            port: port,
+            username: username,
+            database: database,
+            sslMode: sslMode,
+            caCertPath: (caCert?.isEmpty == false) ? caCert : nil
         )
         return (conn, password)
     }

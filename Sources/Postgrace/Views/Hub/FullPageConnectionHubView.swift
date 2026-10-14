@@ -268,14 +268,14 @@ public struct FullPageConnectionHubView: View {
                             .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
                     )
 
-                    // Import URI Button (⌘U)
+                    // Connection String Button (⌘U)
                     Button {
                         isShowingImportSheet = true
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "link.badge.plus")
                                 .font(.system(size: 11))
-                            Text("Import URI")
+                            Text("Connection String")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .foregroundColor(.primary)
@@ -290,7 +290,7 @@ public struct FullPageConnectionHubView: View {
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut("u", modifiers: [.command])
-                    .help("Import connection string (⌘U)")
+                    .help("Connect using connection string (⌘U)")
 
                     // + New Connection (⌘N)
                     Button {
@@ -1781,6 +1781,9 @@ struct HubEditorFormView: View {
     @State private var sshKeyPath: String = ""
     @State private var caCertPath: String = ""
 
+    @State private var connectionMethod: ConnectionInputMode = .parameters
+    @State private var connectionStringInput: String = ""
+
     @State private var activeTab: EditorTab = .overview
     @State private var isTesting = false
     @State private var testOutcome: String? = nil
@@ -1799,11 +1802,25 @@ struct HubEditorFormView: View {
         return h == "localhost" || h == "127.0.0.1" || h == "::1" || h.hasSuffix(".local")
     }
 
+    private var parsedConnectionString: (connection: SavedConnection, password: String)? {
+        SavedConnection.parse(connectionString: connectionStringInput)
+    }
+
+    private var effectivePassword: String {
+        if connectionMethod == .connectionString, let p = parsedConnectionString, !p.password.isEmpty {
+            return p.password
+        }
+        return password
+    }
+
     private var isValid: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !host.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !username.trimmingCharacters(in: .whitespaces).isEmpty &&
-        (Int(port) ?? 0) > 0
+        if connectionMethod == .connectionString {
+            return parsedConnectionString != nil
+        }
+        return !name.trimmingCharacters(in: .whitespaces).isEmpty &&
+            !host.trimmingCharacters(in: .whitespaces).isEmpty &&
+            !username.trimmingCharacters(in: .whitespaces).isEmpty &&
+            (Int(port) ?? 0) > 0
     }
 
     var body: some View {
@@ -1920,63 +1937,190 @@ struct HubEditorFormView: View {
                     if username == "postgres" || username == "root" {
                         username = newEngine.defaultUsername
                     }
+                    if connectionMethod == .connectionString && connectionStringInput.isEmpty {
+                        let temp = buildConnection()
+                        connectionStringInput = temp.connectionString(includePassword: true, password: effectivePassword)
+                    }
                 }
             }
 
-            // Name
+            // Connection Method (Parameters vs Connection String)
             VStack(alignment: .leading, spacing: 4) {
-                Text("NAME").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                TextField("e.g. Production Replica", text: $name)
-                    .textFieldStyle(.roundedBorder)
+                Text("CONNECTION METHOD").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                PostgraceSegmentedControl(
+                    selection: $connectionMethod,
+                    items: ConnectionInputMode.allCases,
+                    titleFor: { $0.rawValue },
+                    iconFor: { $0.iconName }
+                )
+                .onChange(of: connectionMethod) { oldVal, newVal in
+                    if newVal == .connectionString {
+                        if connectionStringInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            let temp = buildConnection()
+                            connectionStringInput = temp.connectionString(includePassword: true, password: effectivePassword)
+                        }
+                    } else if oldVal == .connectionString {
+                        if let p = parsedConnectionString {
+                            applyParsedConnection(p.connection, pwd: p.password)
+                        }
+                    }
+                }
             }
 
-            // Host & Port
-            HStack(spacing: 10) {
+            if connectionMethod == .connectionString {
+                // Connection String Input View
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("CONNECTION STRING (URI OR KEY-VALUE)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button("Paste") {
+                            if let clip = NSPasteboard.general.string(forType: .string) {
+                                connectionStringInput = clip.trimmingCharacters(in: .whitespacesAndNewlines)
+                                parseAndApplyConnectionString(connectionStringInput)
+                            }
+                        }
+                        .font(.system(size: 10))
+                        .buttonStyle(.borderless)
+                    }
+
+                    TextEditor(text: $connectionStringInput)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 72)
+                        .padding(6)
+                        .background(PostgraceTheme.canvas)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(PostgraceTheme.border, lineWidth: PostgraceTheme.hairlineBorder)
+                        )
+                        .onChange(of: connectionStringInput) { _, newVal in
+                            parseAndApplyConnectionString(newVal)
+                        }
+
+                    if let p = parsedConnectionString {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(PostgraceTheme.emeraldRw)
+                                Text("Valid \(p.connection.engine.rawValue) Connection String")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(PostgraceTheme.emeraldRw)
+                                Spacer()
+                                Text(p.connection.sslMode.displayName)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(PostgraceTheme.surfaceElevated)
+                                    .clipShape(Capsule())
+                            }
+
+                            Divider().padding(.vertical, 2)
+
+                            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                                GridRow {
+                                    Text("Host:").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                                    Text("\(p.connection.host):\(p.connection.port)").font(.system(size: 10, design: .monospaced))
+                                }
+                                GridRow {
+                                    Text("Database:").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                                    Text(p.connection.database).font(.system(size: 10, design: .monospaced))
+                                }
+                                GridRow {
+                                    Text("User:").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                                    Text(p.connection.username).font(.system(size: 10, design: .monospaced))
+                                }
+                            }
+                        }
+                        .padding(8)
+                        .background(PostgraceTheme.accentEmeraldMuted.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    } else if !connectionStringInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Invalid format. Examples:\n• postgresql://user:password@host:5432/dbname?sslmode=require\n• host=localhost port=5432 dbname=mydb user=postgres password=secret")
+                            .font(.system(size: 10))
+                            .foregroundColor(PostgraceTheme.destructiveRed)
+                    } else {
+                        Text("Example: postgresql://postgres:password@localhost:5432/postgres?sslmode=disable")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Name
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("HOST").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                    TextField("localhost", text: $host)
+                    Text("NAME").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    TextField(parsedConnectionString?.connection.name ?? "e.g. Production Replica", text: $name)
                         .textFieldStyle(.roundedBorder)
                 }
 
+                // Color Tag
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("PORT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                    TextField("5432", text: $port)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
+                    Text("COLOR TAG").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    Picker("", selection: $colorTag) {
+                        Text("None").tag(ConnectionColor.none)
+                        Text("Red (Production)").tag(ConnectionColor.red)
+                        Text("Blue (Staging)").tag(ConnectionColor.blue)
+                        Text("Green (Local)").tag(ConnectionColor.green)
+                        Text("Orange").tag(ConnectionColor.orange)
+                        Text("Purple").tag(ConnectionColor.purple)
+                    }
                 }
-            }
+            } else {
+                // Name
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("NAME").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    TextField("e.g. Production Replica", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
 
-            // Database
-            VStack(alignment: .leading, spacing: 4) {
-                Text("DEFAULT DATABASE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                TextField("postgres", text: $database)
-                    .textFieldStyle(.roundedBorder)
-            }
+                // Host & Port
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("HOST").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        TextField("localhost", text: $host)
+                            .textFieldStyle(.roundedBorder)
+                    }
 
-            // Username
-            VStack(alignment: .leading, spacing: 4) {
-                Text("USERNAME").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                TextField("postgres", text: $username)
-                    .textFieldStyle(.roundedBorder)
-            }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("PORT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        TextField("5432", text: $port)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                }
 
-            // Password
-            VStack(alignment: .leading, spacing: 4) {
-                Text("PASSWORD").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                SecureField("Stored safely in Apple Keychain", text: $password)
-                    .textFieldStyle(.roundedBorder)
-            }
+                // Database
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("DEFAULT DATABASE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    TextField("postgres", text: $database)
+                        .textFieldStyle(.roundedBorder)
+                }
 
-            // Color Tag
-            VStack(alignment: .leading, spacing: 4) {
-                Text("COLOR TAG").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                Picker("", selection: $colorTag) {
-                    Text("None").tag(ConnectionColor.none)
-                    Text("Red (Production)").tag(ConnectionColor.red)
-                    Text("Blue (Staging)").tag(ConnectionColor.blue)
-                    Text("Green (Local)").tag(ConnectionColor.green)
-                    Text("Orange").tag(ConnectionColor.orange)
-                    Text("Purple").tag(ConnectionColor.purple)
+                // Username
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("USERNAME").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    TextField("postgres", text: $username)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // Password
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("PASSWORD").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    PostgraceSecureField("Stored safely in Apple Keychain", text: $password, icon: nil)
+                }
+
+                // Color Tag
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("COLOR TAG").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    Picker("", selection: $colorTag) {
+                        Text("None").tag(ConnectionColor.none)
+                        Text("Red (Production)").tag(ConnectionColor.red)
+                        Text("Blue (Staging)").tag(ConnectionColor.blue)
+                        Text("Green (Local)").tag(ConnectionColor.green)
+                        Text("Orange").tag(ConnectionColor.orange)
+                        Text("Purple").tag(ConnectionColor.purple)
+                    }
                 }
             }
         }
@@ -2092,6 +2236,30 @@ struct HubEditorFormView: View {
         }
     }
 
+    private func parseAndApplyConnectionString(_ raw: String) {
+        if let (parsedConn, parsedPassword) = SavedConnection.parse(connectionString: raw) {
+            applyParsedConnection(parsedConn, pwd: parsedPassword)
+        }
+    }
+
+    private func applyParsedConnection(_ parsedConn: SavedConnection, pwd: String) {
+        engine = parsedConn.engine
+        host = parsedConn.host
+        port = "\(parsedConn.port)"
+        username = parsedConn.username
+        database = parsedConn.database
+        sslMode = parsedConn.sslMode
+        if !pwd.isEmpty {
+            password = pwd
+        }
+        if let ca = parsedConn.caCertPath, !ca.isEmpty {
+            caCertPath = ca
+        }
+        if name.trimmingCharacters(in: .whitespaces).isEmpty || name.contains(" on ") {
+            name = parsedConn.name
+        }
+    }
+
     private func loadDraft() {
         if let draft = connectionViewModel.draftConnection {
             engine = draft.engine
@@ -2110,31 +2278,55 @@ struct HubEditorFormView: View {
             sshUser = draft.sshUser ?? ""
             sshKeyPath = draft.sshKeyPath ?? ""
             caCertPath = draft.caCertPath ?? ""
+            connectionStringInput = draft.connectionString(includePassword: true, password: password)
         }
     }
 
     private func buildConnection() -> SavedConnection {
-        let p = Int(port.trimmingCharacters(in: .whitespaces)) ?? engine.defaultPort
-        let sPort = Int(sshPort.trimmingCharacters(in: .whitespaces)) ?? 22
         let currentId = (connectionViewModel.inspectorMode == .edit ? connectionViewModel.draftConnection?.id : nil) ?? UUID()
+        let sPort = Int(sshPort.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 22
 
+        if connectionMethod == .connectionString, let p = parsedConnectionString {
+            let connName = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? p.connection.name : name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return SavedConnection(
+                id: currentId,
+                name: connName,
+                engine: p.connection.engine,
+                host: p.connection.host,
+                port: p.connection.port,
+                username: p.connection.username,
+                database: p.connection.database,
+                sslMode: p.connection.sslMode,
+                colorTag: colorTag,
+                isSafeModeEnabled: p.connection.isSafeModeLocked ? true : isSafeModeEnabled,
+                isFavorite: connectionViewModel.draftConnection?.isFavorite ?? false,
+                sshHost: isSSHActive ? sshHost.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+                sshPort: isSSHActive ? sPort : nil,
+                sshUser: isSSHActive ? sshUser.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+                sshKeyPath: isSSHActive ? sshKeyPath.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+                caCertPath: caCertPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? p.connection.caCertPath : caCertPath.trimmingCharacters(in: .whitespacesAndNewlines),
+                sshEnabled: isSSHActive
+            )
+        }
+
+        let p = Int(port.trimmingCharacters(in: .whitespacesAndNewlines)) ?? engine.defaultPort
         return SavedConnection(
             id: currentId,
-            name: name.trimmingCharacters(in: .whitespaces),
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             engine: engine,
-            host: host.trimmingCharacters(in: .whitespaces),
+            host: host.trimmingCharacters(in: .whitespacesAndNewlines),
             port: p,
-            username: username.trimmingCharacters(in: .whitespaces),
-            database: database.trimmingCharacters(in: .whitespaces),
+            username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+            database: database.trimmingCharacters(in: .whitespacesAndNewlines),
             sslMode: sslMode,
             colorTag: colorTag,
             isSafeModeEnabled: isLocalhost ? isSafeModeEnabled : true,
             isFavorite: connectionViewModel.draftConnection?.isFavorite ?? false,
-            sshHost: isSSHActive ? sshHost : nil,
+            sshHost: isSSHActive ? sshHost.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
             sshPort: isSSHActive ? sPort : nil,
-            sshUser: isSSHActive ? sshUser : nil,
-            sshKeyPath: isSSHActive ? sshKeyPath : nil,
-            caCertPath: caCertPath.isEmpty ? nil : caCertPath,
+            sshUser: isSSHActive ? sshUser.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+            sshKeyPath: isSSHActive ? sshKeyPath.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+            caCertPath: caCertPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : caCertPath.trimmingCharacters(in: .whitespacesAndNewlines),
             sshEnabled: isSSHActive
         )
     }
@@ -2144,7 +2336,8 @@ struct HubEditorFormView: View {
         testOutcome = nil
         Task {
             let conn = buildConnection()
-            let success = await connectionViewModel.testConnection(conn, password: password)
+            let cleanPassword = effectivePassword.trimmingCharacters(in: .newlines)
+            let success = await connectionViewModel.testConnection(conn, password: cleanPassword)
             isOutcomeSuccess = success
             testOutcome = success ? "Connection successful!" : (connectionViewModel.connectionError ?? "Connection failed.")
             isTesting = false
@@ -2153,12 +2346,13 @@ struct HubEditorFormView: View {
 
     private func save() {
         let conn = buildConnection()
-        connectionViewModel.saveConnection(conn, password: password)
+        let cleanPassword = effectivePassword.trimmingCharacters(in: .newlines)
+        connectionViewModel.saveConnection(conn, password: cleanPassword)
         connectionViewModel.selectConnection(id: conn.id)
     }
 }
 
-// MARK: - Import URI Modal Sheet (⌘U)
+// MARK: - Connection String Modal Sheet (⌘U)
 struct HubImportURISheet: View {
     @Environment(\.dismiss) private var dismiss
     let onSave: (SavedConnection, String) -> Void
@@ -2167,7 +2361,7 @@ struct HubImportURISheet: View {
     @State private var uriText: String = ""
 
     private var parsed: (connection: SavedConnection, password: String)? {
-        SavedConnection.parse(uriString: uriText)
+        SavedConnection.parse(connectionString: uriText)
     }
 
     var body: some View {
@@ -2179,9 +2373,9 @@ struct HubImportURISheet: View {
                     .foregroundColor(PostgraceTheme.accentEmerald)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Import Database Connection URI")
+                    Text("Connect via Connection String")
                         .font(.system(size: 14, weight: .bold))
-                    Text("Paste a connection string from Supabase, Neon, AWS RDS, PlanetScale, or Docker.")
+                    Text("Paste a PostgreSQL, MySQL, or MariaDB connection string (URI or key-value format).")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -2196,9 +2390,19 @@ struct HubImportURISheet: View {
 
             // Input Text Field
             VStack(alignment: .leading, spacing: 12) {
-                Text("CONNECTION URI")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.secondary)
+                HStack {
+                    Text("CONNECTION STRING (URI OR KEY-VALUE)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("Paste") {
+                        if let clip = NSPasteboard.general.string(forType: .string) {
+                            uriText = clip.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.borderless)
+                }
 
                 TextEditor(text: $uriText)
                     .font(.system(size: 12, design: .monospaced))
@@ -2214,9 +2418,18 @@ struct HubImportURISheet: View {
                 // Live Preview Card
                 if let p = parsed {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("DETECTED PARAMETERS")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(PostgraceTheme.accentEmerald)
+                        HStack {
+                            Text("DETECTED PARAMETERS")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(PostgraceTheme.accentEmerald)
+                            Spacer()
+                            Text(p.connection.sslMode.displayName)
+                                .font(.system(size: 9, weight: .semibold))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(PostgraceTheme.surfaceElevated)
+                                .clipShape(Capsule())
+                        }
 
                         HStack {
                             Text("Engine: \(p.connection.engine.rawValue)").bold()
@@ -2236,7 +2449,7 @@ struct HubImportURISheet: View {
                     .background(PostgraceTheme.accentEmeraldMuted)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 } else if !uriText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Invalid URI format. Example: postgresql://postgres:password@host:5432/database?sslmode=require")
+                    Text("Invalid format. Examples:\n• postgresql://user:password@host:5432/database?sslmode=require\n• host=localhost port=5432 dbname=mydb user=postgres password=secret")
                         .font(.system(size: 10))
                         .foregroundColor(PostgraceTheme.destructiveRed)
                 }
@@ -2264,7 +2477,7 @@ struct HubImportURISheet: View {
                         dismiss()
                     }
 
-                    PostgraceButton("Import & Connect", variant: .primary) {
+                    PostgraceButton("Connect", variant: .primary) {
                         onConnectImmediately(p.connection, p.password)
                         dismiss()
                     }

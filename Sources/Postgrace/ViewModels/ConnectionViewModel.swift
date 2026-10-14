@@ -115,7 +115,8 @@ public class ConnectionViewModel {
         connectionError = nil
 
         do {
-            let password = (try? keychainService.getPassword(for: connection.id)) ?? ""
+            let rawPassword = (try? keychainService.getPassword(for: connection.id)) ?? ""
+            let password = rawPassword.trimmingCharacters(in: .newlines)
             try await postgresService.connect(config: connection, password: password)
             var updated = connection
             updated.lastConnectedAt = Date()
@@ -190,8 +191,9 @@ public class ConnectionViewModel {
     /// Test a connection with the given password (does not persist).
     public func testConnection(_ connection: SavedConnection, password: String) async -> Bool {
         connectionError = nil
+        let cleanPassword = password.trimmingCharacters(in: .newlines)
         do {
-            let success = try await postgresService.testConnection(config: connection, password: password)
+            let success = try await postgresService.testConnection(config: connection, password: cleanPassword)
             if !success {
                 let err = await postgresService.lastConnectionError
                 connectionError = err ?? "Connection failed."
@@ -208,7 +210,7 @@ public class ConnectionViewModel {
     public func runTestPing(for connection: SavedConnection, password: String? = nil) async -> ConnectionHealth {
         isTestingMap[connection.id] = true
         let start = CFAbsoluteTimeGetCurrent()
-        let pwd = password ?? getStoredPassword(for: connection.id) ?? ""
+        let pwd = (password ?? getStoredPassword(for: connection.id) ?? "").trimmingCharacters(in: .newlines)
 
         let health: ConnectionHealth
         do {
@@ -365,8 +367,13 @@ public class ConnectionViewModel {
             savedConnections.append(connection)
         }
 
-        if !password.isEmpty || getStoredPassword(for: connection.id) == nil {
-            try? keychainService.savePassword(password, for: connection.id)
+        let cleanPassword = password.trimmingCharacters(in: .newlines)
+        if !cleanPassword.isEmpty || getStoredPassword(for: connection.id) == nil {
+            do {
+                try keychainService.savePassword(cleanPassword, for: connection.id)
+            } catch {
+                print("Warning: Failed to save password to Keychain for connection \(connection.id): \(error)")
+            }
         }
         selectedConnectionId = connection.id
         persistConnections()

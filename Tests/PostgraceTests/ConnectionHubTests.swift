@@ -92,6 +92,62 @@ final class ConnectionHubTests: XCTestCase {
         XCTAssertTrue(full.contains("dbadmin:realpassword@aws.postgres.com:5432/metrics?sslmode=require"))
     }
 
+    func testPostgresKeyValueConnectionString() {
+        let kv = "host=db.example.com port=5432 dbname=customer_db user=admin password=topsecret sslmode=require"
+        guard let (conn, pwd) = SavedConnection.parse(connectionString: kv) else {
+            XCTFail("Failed to parse PostgreSQL key-value connection string")
+            return
+        }
+
+        XCTAssertEqual(conn.engine, .postgresql)
+        XCTAssertEqual(conn.host, "db.example.com")
+        XCTAssertEqual(conn.port, 5432)
+        XCTAssertEqual(conn.database, "customer_db")
+        XCTAssertEqual(conn.username, "admin")
+        XCTAssertEqual(pwd, "topsecret")
+        XCTAssertEqual(conn.sslMode, .require)
+    }
+
+    func testPostgresKeyValueWithQuotesAndSpaces() {
+        let kv = "host='db.internal' port=5433 dbname=\"analytics warehouse\" user=pg_analyst password='complex password with spaces' sslmode=verify-full sslrootcert=/etc/ssl/ca.crt"
+        guard let (conn, pwd) = SavedConnection.parse(connectionString: kv) else {
+            XCTFail("Failed to parse quoted PostgreSQL key-value connection string")
+            return
+        }
+
+        XCTAssertEqual(conn.engine, .postgresql)
+        XCTAssertEqual(conn.host, "db.internal")
+        XCTAssertEqual(conn.port, 5433)
+        XCTAssertEqual(conn.database, "analytics warehouse")
+        XCTAssertEqual(conn.username, "pg_analyst")
+        XCTAssertEqual(pwd, "complex password with spaces")
+        XCTAssertEqual(conn.sslMode, .verifyFull)
+        XCTAssertEqual(conn.caCertPath, "/etc/ssl/ca.crt")
+    }
+
+    func testPostgresURIWithSSLQueryParams() {
+        let uri = "postgresql://user:p%40ssword@remote.host:5432/mydb?ssl=true&sslrootcert=/path/to/ca.pem"
+        guard let (conn, pwd) = SavedConnection.parse(connectionString: uri) else {
+            XCTFail("Failed to parse URI with ssl=true and sslrootcert")
+            return
+        }
+
+        XCTAssertEqual(conn.engine, .postgresql)
+        XCTAssertEqual(conn.host, "remote.host")
+        XCTAssertEqual(conn.port, 5432)
+        XCTAssertEqual(conn.username, "user")
+        XCTAssertEqual(pwd, "p@ssword")
+        XCTAssertEqual(conn.sslMode, .require)
+        XCTAssertEqual(conn.caCertPath, "/path/to/ca.pem")
+    }
+
+    func testConnectionInputModeEnum() {
+        XCTAssertEqual(ConnectionInputMode.parameters.id, "Parameters")
+        XCTAssertEqual(ConnectionInputMode.connectionString.id, "Connection String")
+        XCTAssertFalse(ConnectionInputMode.parameters.iconName.isEmpty)
+        XCTAssertFalse(ConnectionInputMode.connectionString.iconName.isEmpty)
+    }
+
     // MARK: - 2. Filter & Navigation Tests
 
     func testHubGroupFilters() {

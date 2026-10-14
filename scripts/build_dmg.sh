@@ -136,7 +136,24 @@ if [ "${SIGNING_IDENTITY}" != "-" ]; then
     codesign --sign "${SIGNING_IDENTITY}" "${DMG_PATH}"
 fi
 
-# 7. Summary
+# 7. Create Versioned Artifacts & Release Zip
+VERSIONED_DMG="${DIST_DIR}/${APP_NAME}-${VERSION}.dmg"
+VERSIONED_ZIP="${DIST_DIR}/${APP_NAME}-${VERSION}.zip"
+SHA256_FILE="${DIST_DIR}/SHA256SUMS.txt"
+
+echo "--> Generating versioned DMG: ${VERSIONED_DMG}..."
+cp "${DMG_PATH}" "${VERSIONED_DMG}"
+
+echo "--> Packaging release zip archive: ${VERSIONED_ZIP}..."
+ditto -c -k --sequesterRsrc --keepParent "${APP_BUNDLE}" "${VERSIONED_ZIP}"
+
+echo "--> Generating SHA-256 checksums..."
+(
+    cd "${DIST_DIR}"
+    shasum -a 256 "${APP_NAME}.dmg" "$(basename "${VERSIONED_DMG}")" "$(basename "${VERSIONED_ZIP}")" > "${SHA256_FILE}"
+)
+
+# 8. Summary
 FILE_SIZE=$(du -sh "${DMG_PATH}" | awk '{print $1}')
 SHA256_HASH=$(shasum -a 256 "${DMG_PATH}" | awk '{print $1}')
 
@@ -144,11 +161,14 @@ echo ""
 echo "=========================================================="
 echo " Build & Packaging Successful!"
 echo "=========================================================="
-echo " App Bundle:  ${APP_BUNDLE}"
-echo " DMG Image:   ${DMG_PATH}"
-echo " DMG Size:    ${FILE_SIZE}"
-echo " SHA-256:     ${SHA256_HASH}"
-echo " Signing:     ${SIGNING_IDENTITY}"
+echo " App Bundle:     ${APP_BUNDLE}"
+echo " DMG Image:      ${DMG_PATH}"
+echo " Versioned DMG:  ${VERSIONED_DMG}"
+echo " Versioned ZIP:  ${VERSIONED_ZIP}"
+echo " Checksums:      ${SHA256_FILE}"
+echo " DMG Size:       ${FILE_SIZE}"
+echo " SHA-256:        ${SHA256_HASH}"
+echo " Signing:        ${SIGNING_IDENTITY}"
 echo "=========================================================="
 
 if [ "${SIGNING_IDENTITY}" != "-" ]; then

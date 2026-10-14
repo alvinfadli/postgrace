@@ -17,3 +17,15 @@ You can build the project in two ways:
    ```bash
    swift build
    ```
+
+## Packaging & Releases
+
+To package a standalone `.app` bundle and installer `.dmg`:
+```bash
+VERSION=0.1.1 ./scripts/build_dmg.sh
+```
+
+All build artifacts (`Postgrace.dmg`, `Postgrace-<version>.dmg`, `Postgrace-<version>.zip`, and `SHA256SUMS.txt`) will be generated inside the `dist/` directory.
+
+For instructions on releasing to GitHub, see [docs/RELEASING.md](docs/RELEASING.md).
+

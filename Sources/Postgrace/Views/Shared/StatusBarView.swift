@@ -4,7 +4,8 @@ public struct StatusBarView: View {
     @Environment(ConnectionViewModel.self) private var connectionViewModel
     @Environment(QueryViewModel.self) private var queryViewModel
     @Environment(SchemaViewModel.self) private var schemaViewModel
-    
+    @Environment(ZoomManager.self) private var zoomManager
+
     public init() {}
     
     public var body: some View {
@@ -47,6 +48,24 @@ public struct StatusBarView: View {
                 Text(String(format: "%.3f s", result.executionTime))
                     .font(.caption.monospacedDigit())
                     .foregroundColor(.secondary)
+            }
+
+            if !zoomManager.isDefaultZoom {
+                Text("•")
+                    .foregroundColor(PostgraceTheme.border)
+                Button {
+                    zoomManager.resetZoom()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 8))
+                        Text(zoomManager.zoomPercentageString)
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                    .foregroundColor(PostgraceTheme.accentSky)
+                }
+                .buttonStyle(.plain)
+                .help("Current zoom (Click to reset to 100%, ⌘+ / ⌘- to adjust)")
             }
         }
         .padding(.horizontal, 10)

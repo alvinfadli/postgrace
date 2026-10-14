@@ -9,6 +9,7 @@ struct WorkspaceToolbarView: View {
     @Environment(WorkspaceTabViewModel.self) private var tabViewModel
     @Environment(ExportViewModel.self) private var exportViewModel
     @Environment(ImportViewModel.self) private var importViewModel
+    @Environment(ZoomManager.self) private var zoomManager: ZoomManager?
 
     @State private var showingCreateDatabaseSheet: Bool = false
     @State private var databaseToDrop: DatabaseInfo?
@@ -18,7 +19,7 @@ struct WorkspaceToolbarView: View {
         HStack(spacing: 8) {
             // Space for macOS native window traffic lights (close, minimize, zoom)
             Spacer()
-                .frame(width: 68)
+                .frame(width: max(68, 68 / (zoomManager?.scale ?? 1.0)))
 
             // Divider separating traffic lights from breadcrumbs
             Rectangle()

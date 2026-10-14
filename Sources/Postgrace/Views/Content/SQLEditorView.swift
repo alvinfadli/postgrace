@@ -13,6 +13,7 @@ struct SQLEditorView: NSViewRepresentable {
     var tables: [String: [TableInfo]] = [:]
     var columns: [String: [ColumnInfo]] = [:]
     var schemas: [SchemaInfo] = []
+    var fontSize: CGFloat = 13
     var onExecuteCurrent: (() -> Void)? = nil
     var onExecuteAll: (() -> Void)? = nil
 
@@ -47,7 +48,7 @@ struct SQLEditorView: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
 
-        let editorFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let editorFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.font = editorFont
         textView.textColor = PostgraceTheme.sqlIdentifierNSColor
         textView.typingAttributes = [
@@ -103,6 +104,14 @@ struct SQLEditorView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = nsView.documentView as? SQLCustomTextView else { return }
         textView.placeholderString = placeholder
+
+        if textView.font?.pointSize != fontSize {
+            let newFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            textView.font = newFont
+            textView.typingAttributes[.font] = newFont
+            context.coordinator.applySyntaxHighlighting(to: textView)
+            context.coordinator.rulerView?.needsDisplay = true
+        }
 
         if textView.string != text {
             let prevRange = textView.selectedRange()
@@ -236,6 +245,25 @@ final class SQLCustomTextView: NSTextView {
     weak var customCoordinator: SQLEditorView.Coordinator?
     var completionController: SQLCompletionController?
     var placeholderString: String = ""
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command) {
+            let chars = event.charactersIgnoringModifiers ?? ""
+            if chars == "=" || chars == "+" {
+                ZoomManager.shared.zoomIn()
+                return true
+            }
+            if chars == "-" || chars == "_" {
+                ZoomManager.shared.zoomOut()
+                return true
+            }
+            if chars == "0" {
+                ZoomManager.shared.resetZoom()
+                return true
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         // 1. Check if completion popup is active
@@ -648,8 +676,10 @@ final class LineNumberRulerView: NSRulerView {
 
     private func drawLineNumber(_ number: Int, at y: CGFloat) {
         let str = "\(number)"
+        let clientFontSize = (clientView as? NSTextView)?.font?.pointSize ?? 13
+        let rulerFontSize = max(9, clientFontSize - 2)
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            .font: NSFont.monospacedDigitSystemFont(ofSize: rulerFontSize, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.6)
         ]
         let size = (str as NSString).size(withAttributes: attrs)

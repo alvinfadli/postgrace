@@ -7,6 +7,11 @@ struct DataGridView: View {
     let queryResult: QueryResult
 
     @Environment(DataGridViewModel.self) private var dataGridViewModel
+    @Environment(ZoomManager.self) private var zoomManager: ZoomManager?
+
+    private var activeZoom: ZoomManager {
+        zoomManager ?? ZoomManager.shared
+    }
 
     @State private var columnWidths: [String: CGFloat] = [:]
     @State private var sortColumn: String? = nil
@@ -272,16 +277,18 @@ struct DataGridView: View {
         for column: ResultColumn,
         in rows: [[CellValue]],
         columns: [ResultColumn],
-        sampleLimit: Int = 300
+        sampleLimit: Int = 300,
+        fontSize: CGFloat = 12
     ) -> CGFloat {
         guard let dataIndex = columns.firstIndex(where: { $0.name == column.name }) else {
             return 110
         }
 
         // 1. Measure Header Width
-        let nameFont = NSFont.systemFont(ofSize: 12, weight: .bold)
+        let headerSize = max(9, fontSize)
+        let nameFont = NSFont.systemFont(ofSize: headerSize, weight: .bold)
         let nameWidth = (column.name as NSString).size(withAttributes: [.font: nameFont]).width
-        let typeFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+        let typeFont = NSFont.monospacedSystemFont(ofSize: max(8, headerSize - 3), weight: .regular)
         let typeWidth = (!column.dataTypeName.isEmpty && column.dataTypeName != "unknown")
             ? (column.dataTypeName.lowercased() as NSString).size(withAttributes: [.font: typeFont]).width + 8
             : 0
@@ -289,7 +296,7 @@ struct DataGridView: View {
         var maxRequiredWidth: CGFloat = nameWidth + typeWidth + 56
 
         // 2. Measure Cell Contents Across Rows
-        let cellFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let cellFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         let count = min(rows.count, sampleLimit)
 
         for i in 0..<count {
@@ -947,6 +954,8 @@ struct DataGridRowView: View, Equatable {
     let visibleColumns: [VisibleGridColumn]
     let availableWidth: CGFloat
     let selectedColumn: String?
+    var cellFontSize: CGFloat = 12
+    var rowPaddingVertical: CGFloat = 5
     let onSelectCell: (SelectedGridCell) -> Void
     let onCopyCell: (String) -> Void
     let onCopyColumn: (String) -> Void
@@ -961,6 +970,8 @@ struct DataGridRowView: View, Equatable {
         lhs.selectedColumn == rhs.selectedColumn &&
         lhs.availableWidth == rhs.availableWidth &&
         lhs.visibleColumns == rhs.visibleColumns &&
+        lhs.cellFontSize == rhs.cellFontSize &&
+        lhs.rowPaddingVertical == rhs.rowPaddingVertical &&
         lhs.row == rhs.row
     }
 
@@ -970,11 +981,11 @@ struct DataGridRowView: View, Equatable {
         HStack(spacing: 0) {
             // Row number gutter
             Text("\(rowIndex + 1)")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: max(8, cellFontSize - 1), design: .monospaced))
                 .foregroundColor(.secondary.opacity(0.8))
                 .frame(width: 44, alignment: .trailing)
                 .padding(.trailing, 8)
-                .padding(.vertical, 5)
+                .padding(.vertical, rowPaddingVertical)
                 .background(PostgraceTheme.surface.opacity(0.2))
                 .overlay(
                     Rectangle()
@@ -1025,7 +1036,7 @@ struct DataGridRowView: View, Equatable {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.vertical, rowPaddingVertical)
         .frame(width: width, alignment: .leading)
         .frame(maxHeight: .infinity)
         .background(
@@ -1115,16 +1126,16 @@ struct DataGridRowView: View, Equatable {
         switch cellValue {
         case .null:
             Text("NULL")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: max(8, cellFontSize - 1), design: .monospaced))
                 .italic()
                 .foregroundColor(.secondary.opacity(0.6))
         case .bool(let b):
             Text(b ? "true" : "false")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.system(size: max(8, cellFontSize - 1), weight: .bold, design: .monospaced))
                 .foregroundColor(b ? PostgraceTheme.emeraldRw : PostgraceTheme.destructiveRed)
         default:
             Text(cellValue.displayString)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: cellFontSize, design: .monospaced))
                 .foregroundColor(.primary)
                 .lineLimit(1)
         }

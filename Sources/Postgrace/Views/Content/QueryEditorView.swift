@@ -4,6 +4,7 @@ import SwiftUI
 struct QueryEditorView: View {
     @Environment(ConnectionViewModel.self) private var connectionViewModel
     @Environment(SchemaViewModel.self) private var schemaViewModel
+    @Environment(ZoomManager.self) private var zoomManager
     @Bindable var queryViewModel: QueryViewModel
     @State private var showHistory = false
     @State private var showHelperBar = true

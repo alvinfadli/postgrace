@@ -46,6 +46,7 @@ struct PostgraceApp: App {
     @State private var tabViewModel: WorkspaceTabViewModel
     @State private var exportViewModel: ExportViewModel
     @State private var importViewModel: ImportViewModel
+    @State private var zoomManager = ZoomManager.shared
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -81,6 +82,7 @@ struct PostgraceApp: App {
                 .environment(tabViewModel)
                 .environment(exportViewModel)
                 .environment(importViewModel)
+                .environment(zoomManager)
                 .tint(PostgraceTheme.accentEmerald)
         }
         .windowStyle(.hiddenTitleBar)
@@ -172,6 +174,24 @@ struct PostgraceApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(!connectionViewModel.isConnected)
+
+                Divider()
+
+                Button("Zoom In") {
+                    zoomManager.zoomIn()
+                }
+                .keyboardShortcut("+", modifiers: .command)
+
+                Button("Zoom Out") {
+                    zoomManager.zoomOut()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
+                Button("Actual Size") {
+                    zoomManager.resetZoom()
+                }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(zoomManager.isDefaultZoom)
 
                 Divider()
 

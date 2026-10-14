@@ -125,24 +125,26 @@ public enum SQLAutocompleteService {
         var results: [SQLCompletionItem] = []
         let lowerPrefix = prefix.lowercased()
 
-        // 1. Scoped completion: e.g. "users." or "public."
+        // 1. Scoped completion: e.g. "users.", "merchant.st", or "merchant.store.id"
         if prefix.contains(".") {
             let parts = prefix.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-            let parent = parts.first?.lowercased() ?? ""
-            let memberPrefix = parts.count > 1 ? parts[1].lowercased() : ""
+            let qualifier = parts.dropLast().joined(separator: ".")
+            let lowerQualifier = qualifier.lowercased()
+            let memberPrefix = parts.last?.lowercased() ?? ""
 
-            // Look for columns matching table `parent`
+            // Look for columns matching table `qualifier` or `schema.table` `qualifier`
             for (key, cols) in columns {
                 // key is "schema.table"
                 let keyParts = key.split(separator: ".")
                 let tableName = keyParts.last.map(String.init)?.lowercased() ?? ""
 
-                if tableName == parent || key.lowercased() == parent {
+                if tableName == lowerQualifier || key.lowercased() == lowerQualifier {
                     for col in cols {
                         if memberPrefix.isEmpty || col.name.lowercased().hasPrefix(memberPrefix) {
+                            let qualifiedName = "\(qualifier).\(col.name)"
                             results.append(SQLCompletionItem(
-                                text: "\(parts[0]).\(col.name)",
-                                insertText: col.name,
+                                text: qualifiedName,
+                                insertText: qualifiedName,
                                 kind: .column,
                                 detail: "\(col.dataType)\(col.isPrimaryKey ? " • PK" : "")"
                             ))
@@ -151,16 +153,19 @@ public enum SQLAutocompleteService {
                 }
             }
 
-            // Look for tables matching schema `parent`
-            if let schemaTables = tables[parent] {
-                for tbl in schemaTables {
-                    if memberPrefix.isEmpty || tbl.name.lowercased().hasPrefix(memberPrefix) {
-                        results.append(SQLCompletionItem(
-                            text: "\(parts[0]).\(tbl.name)",
-                            insertText: tbl.name,
-                            kind: .table,
-                            detail: "Table (\(tbl.estimatedRowCount) rows)"
-                        ))
+            // Look for tables matching schema `qualifier`
+            if parts.count == 2 {
+                for (schemaKey, schemaTables) in tables where schemaKey.lowercased() == lowerQualifier {
+                    for tbl in schemaTables {
+                        if memberPrefix.isEmpty || tbl.name.lowercased().hasPrefix(memberPrefix) {
+                            let qualifiedName = "\(qualifier).\(tbl.name)"
+                            results.append(SQLCompletionItem(
+                                text: qualifiedName,
+                                insertText: qualifiedName,
+                                kind: .table,
+                                detail: "Table (\(tbl.estimatedRowCount) rows)"
+                            ))
+                        }
                     }
                 }
             }

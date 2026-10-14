@@ -49,12 +49,18 @@ final class SQLAutocompleteServiceTests: XCTestCase {
             "public": [
                 TableInfo(schema: "public", name: "users", oid: 101, estimatedRowCount: 50, tableType: .table),
                 TableInfo(schema: "public", name: "orders", oid: 102, estimatedRowCount: 120, tableType: .table)
+            ],
+            "merchant": [
+                TableInfo(schema: "merchant", name: "store", oid: 201, estimatedRowCount: 15, tableType: .table)
             ]
         ]
         let sampleColumns: [String: [ColumnInfo]] = [
             "public.users": [
                 ColumnInfo(name: "id", ordinalPosition: 1, dataType: "int4", isNullable: false, defaultValue: nil, isPrimaryKey: true, characterMaxLength: nil),
                 ColumnInfo(name: "email", ordinalPosition: 2, dataType: "varchar", isNullable: false, defaultValue: nil, isPrimaryKey: false, characterMaxLength: 255)
+            ],
+            "merchant.store": [
+                ColumnInfo(name: "store_id", ordinalPosition: 1, dataType: "uuid", isNullable: false, defaultValue: nil, isPrimaryKey: true, characterMaxLength: nil)
             ]
         ]
 
@@ -78,7 +84,7 @@ final class SQLAutocompleteServiceTests: XCTestCase {
         )
         XCTAssertTrue(colItems.contains(where: { $0.text == "email" && $0.kind == .column }))
 
-        // Scoped column suggestion: users.
+        // Scoped column suggestion: users. keeps "users." prefix
         let (_, _, scopedItems) = SQLAutocompleteService.suggestions(
             for: "SELECT users.",
             at: 13,
@@ -86,7 +92,36 @@ final class SQLAutocompleteServiceTests: XCTestCase {
             columns: sampleColumns,
             schemas: []
         )
-        XCTAssertTrue(scopedItems.contains(where: { $0.insertText == "email" && $0.kind == .column }))
+        XCTAssertTrue(scopedItems.contains(where: { $0.insertText == "users.email" && $0.kind == .column }))
+
+        // Scoped schema.table suggestion: merchant.st keeps "merchant." schema prefix
+        let schemaQuery = "SELECT * FROM merchant.st"
+        let (_, schemaReplaceRange, schemaTableItems) = SQLAutocompleteService.suggestions(
+            for: schemaQuery,
+            at: schemaQuery.count,
+            tables: sampleTables,
+            columns: sampleColumns,
+            schemas: []
+        )
+        guard let storeItem = schemaTableItems.first(where: { $0.kind == .table }) else {
+            XCTFail("Expected merchant.store table suggestion")
+            return
+        }
+        XCTAssertEqual(storeItem.text, "merchant.store")
+        XCTAssertEqual(storeItem.insertText, "merchant.store")
+        let replaced = (schemaQuery as NSString).replacingCharacters(in: schemaReplaceRange, with: storeItem.insertText)
+        XCTAssertEqual(replaced, "SELECT * FROM merchant.store")
+
+        // Scoped schema.table.column suggestion: merchant.store.st keeps "merchant.store." prefix
+        let threePartQuery = "SELECT merchant.store.st"
+        let (_, _, threePartItems) = SQLAutocompleteService.suggestions(
+            for: threePartQuery,
+            at: threePartQuery.count,
+            tables: sampleTables,
+            columns: sampleColumns,
+            schemas: []
+        )
+        XCTAssertTrue(threePartItems.contains(where: { $0.insertText == "merchant.store.store_id" && $0.kind == .column }))
     }
 
     func testContextualChips() {

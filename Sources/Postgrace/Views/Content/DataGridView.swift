@@ -250,7 +250,7 @@ struct DataGridView: View {
         }
     }
 
-    // MARK: - Column Width Calculation
+    // MARK: - Column Width Calculation & Auto-Fit
 
     private func widthForColumn(at index: Int, column: ResultColumn) -> CGFloat {
         if let userWidth = columnWidths[column.name] {
@@ -265,6 +265,74 @@ struct DataGridView: View {
         let charCount = max(nameLength, typeLength)
         let estimated = CGFloat(charCount * 9 + 48)
         return max(110, min(320, estimated))
+    }
+
+    /// Calculates the optimal auto-adjusted width for a column to fully display its header and cell contents.
+    public static func calculateFittedWidth(
+        for column: ResultColumn,
+        in rows: [[CellValue]],
+        columns: [ResultColumn],
+        sampleLimit: Int = 300
+    ) -> CGFloat {
+        guard let dataIndex = columns.firstIndex(where: { $0.name == column.name }) else {
+            return 110
+        }
+
+        // 1. Measure Header Width
+        let nameFont = NSFont.systemFont(ofSize: 12, weight: .bold)
+        let nameWidth = (column.name as NSString).size(withAttributes: [.font: nameFont]).width
+        let typeFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+        let typeWidth = (!column.dataTypeName.isEmpty && column.dataTypeName != "unknown")
+            ? (column.dataTypeName.lowercased() as NSString).size(withAttributes: [.font: typeFont]).width + 8
+            : 0
+        // Name + type badge + sort icon space (~16px) + filter icon (~20px) + margins (~24px)
+        var maxRequiredWidth: CGFloat = nameWidth + typeWidth + 56
+
+        // 2. Measure Cell Contents Across Rows
+        let cellFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let count = min(rows.count, sampleLimit)
+
+        for i in 0..<count {
+            let row = rows[i]
+            if dataIndex < row.count {
+                let cell = row[dataIndex]
+                let text = cell.displayString
+                if !text.isEmpty {
+                    // Cell text width + 16px horizontal padding + 8px margin
+                    let textWidth = (text as NSString).size(withAttributes: [.font: cellFont]).width + 24
+                    if textWidth > maxRequiredWidth {
+                        maxRequiredWidth = textWidth
+                    }
+                }
+            }
+        }
+
+        // Clamp to sensible min/max constraints (min 90, max 700)
+        return max(90, min(700, ceil(maxRequiredWidth)))
+    }
+
+    private func autoFitColumnWidth(column: ResultColumn) {
+        let fittedWidth = DataGridView.calculateFittedWidth(
+            for: column,
+            in: sortedRows,
+            columns: queryResult.columns
+        )
+        withAnimation(.easeInOut(duration: 0.15)) {
+            columnWidths[column.name] = fittedWidth
+        }
+    }
+
+    private func autoFitAllColumns() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            for col in queryResult.columns {
+                let fitted = DataGridView.calculateFittedWidth(
+                    for: col,
+                    in: sortedRows,
+                    columns: queryResult.columns
+                )
+                columnWidths[col.name] = fitted
+            }
+        }
     }
 
     private var visibleGridColumns: [VisibleGridColumn] {
@@ -428,6 +496,10 @@ struct DataGridView: View {
             .help("Click to sort by \(column.name)")
 
             Spacer(minLength: 0)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    autoFitColumnWidth(column: column)
+                }
 
             // Column Filter Button with Interactive Popover
             Button {
@@ -471,10 +543,11 @@ struct DataGridView: View {
                     columnWidths[column.name] = newWidth
                 },
                 onDoubleClick: {
-                    columnWidths[column.name] = defaultWidth(for: column)
+                    autoFitColumnWidth(column: column)
                 }
             )
-            .frame(width: 8, height: 32)
+            .frame(width: 10, height: 32)
+            .help("Drag to resize. Double-click to auto-adjust width.")
         }
         .frame(width: width, alignment: .leading)
         .onHover { hovering in
@@ -485,6 +558,28 @@ struct DataGridView: View {
             }
         }
         .contextMenu {
+            Button {
+                autoFitColumnWidth(column: column)
+            } label: {
+                Label("Auto-Fit Column Width", systemImage: "arrow.left.and.right")
+            }
+
+            Button {
+                autoFitAllColumns()
+            } label: {
+                Label("Auto-Fit All Columns", systemImage: "tablecells.badge.ellipsis")
+            }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    columnWidths[column.name] = defaultWidth(for: column)
+                }
+            } label: {
+                Label("Reset to Default Width", systemImage: "arrow.counterclockwise")
+            }
+
+            Divider()
+
             Button {
                 activeFilterColumn = column.name
             } label: {
@@ -573,6 +668,24 @@ struct DataGridView: View {
                     onHideAll: { hideAllColumns() }
                 )
             }
+
+            Text("•")
+                .foregroundColor(PostgraceTheme.border)
+
+            // Auto-fit all columns button
+            Button {
+                autoFitAllColumns()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.left.and.right")
+                        .font(.system(size: 9))
+                    Text("Auto-fit")
+                        .font(.system(size: 11, design: .monospaced))
+                }
+                .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Auto-adjust all column widths to fit cell contents (or double-click column divider)")
 
             if queryResult.executionTime > 0 {
                 Text("•")
@@ -1084,7 +1197,11 @@ final class ColumnResizeHandleNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
+        if event.clickCount >= 2 {
+            if isDragging {
+                isDragging = false
+                NSCursor.pop()
+            }
             onDoubleClick?()
             return
         }
@@ -1099,6 +1216,7 @@ final class ColumnResizeHandleNSView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
         let deltaX = event.locationInWindow.x - startLocationX
+        if abs(deltaX) < 2 { return }
         let newWidth = max(50, initialWidth + deltaX)
         onResize?(newWidth)
     }

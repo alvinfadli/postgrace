@@ -817,6 +817,60 @@ final class ViewModelTests: XCTestCase {
         vm.cancelQuery()
         XCTAssertFalse(vm.isExecuting)
     }
+
+    // MARK: - DataGridView Column Auto-Fit Tests
+
+    func testCalculateFittedWidthShortValues() {
+        let col = ResultColumn(name: "id", dataTypeOID: 23, dataTypeName: "int4")
+        let cols = [col]
+        let rows: [[CellValue]] = [
+            [.int(1)],
+            [.int(2)],
+            [.int(3)]
+        ]
+
+        let fitted = DataGridView.calculateFittedWidth(for: col, in: rows, columns: cols)
+        // Short values should respect minimum clamped width (90)
+        XCTAssertGreaterThanOrEqual(fitted, 90)
+        XCTAssertLessThan(fitted, 150)
+    }
+
+    func testCalculateFittedWidthLongValues() {
+        let col = ResultColumn(name: "email_address", dataTypeOID: 25, dataTypeName: "text")
+        let cols = [col]
+        let rows: [[CellValue]] = [
+            [.string("short@a.co")],
+            [.string("very.long.corporate.enterprise.user.account@example-company-domain.org")],
+            [.string("test@b.com")]
+        ]
+
+        let fitted = DataGridView.calculateFittedWidth(for: col, in: rows, columns: cols)
+        // Should expand to accommodate the long email address
+        XCTAssertGreaterThan(fitted, 350)
+        XCTAssertLessThanOrEqual(fitted, 700)
+    }
+
+    func testCalculateFittedWidthClampedToMax() {
+        let col = ResultColumn(name: "description", dataTypeOID: 25, dataTypeName: "text")
+        let cols = [col]
+        let massiveString = String(repeating: "The quick brown fox jumps over the lazy dog. ", count: 30)
+        let rows: [[CellValue]] = [
+            [.string(massiveString)]
+        ]
+
+        let fitted = DataGridView.calculateFittedWidth(for: col, in: rows, columns: cols)
+        // Should clamp cleanly at 700
+        XCTAssertEqual(fitted, 700)
+    }
+
+    func testCalculateFittedWidthMissingColumn() {
+        let col = ResultColumn(name: "nonexistent", dataTypeOID: 25, dataTypeName: "text")
+        let cols = [ResultColumn(name: "other", dataTypeOID: 23, dataTypeName: "int4")]
+        let rows: [[CellValue]] = []
+
+        let fitted = DataGridView.calculateFittedWidth(for: col, in: rows, columns: cols)
+        XCTAssertEqual(fitted, 110)
+    }
 }
 
 
